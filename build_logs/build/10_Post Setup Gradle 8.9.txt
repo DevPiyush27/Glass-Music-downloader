@@ -1,35 +1,39 @@
-﻿2026-08-20T15:57:09.4789750Z Node 20 is being deprecated. This workflow is running with Node 24 by default. If you need to temporarily use Node 20, you can set the ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true environment variable. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
-2026-08-20T15:57:09.4790737Z Post job cleanup.
-2026-08-20T15:57:09.6345359Z In post-action step
-2026-08-20T15:57:09.6350233Z Stopping all Gradle daemons before saving Gradle User Home state
-2026-08-20T15:57:09.6351359Z (node:2359) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
-2026-08-20T15:57:09.6352638Z (Use `node --trace-deprecation ...` to show where the warning was created)
-2026-08-20T15:57:09.6355286Z ##[group]Caching Gradle state
-2026-08-20T15:57:09.6458655Z Caching generated-gradle-jars with path '/home/runner/.gradle/caches/8.9/generated-gradle-jars/gradle-api-8.9.jar' and cache key: gradle-generated-gradle-jars-v1-26cfecc158c44513d188405a5d2d0d9c
-2026-08-20T15:57:09.6606914Z [command]/usr/bin/tar --posix -cf cache.tzst --exclude cache.tzst -P -C /home/runner/work/Advanced-Music-downloader/Advanced-Music-downloader --files-from manifest.txt --use-compress-program zstdmt
-2026-08-20T15:57:09.7724988Z Caching dependencies with path '/home/runner/.gradle/caches/modules-*/files-*/*/*/*/*' and cache key: gradle-dependencies-v1-92f5ca37c2751c7cddef33a7420418b2
-2026-08-20T15:57:09.7828340Z Caching instrumented-jars with path '/home/runner/.gradle/caches/jars-*/*/' and cache key: gradle-instrumented-jars-v1-817a8d0be1eb0f19b5e1789eaa4084aa
-2026-08-20T15:57:09.7918363Z Caching kotlin-dsl with path '/home/runner/.gradle/caches/*/kotlin-dsl/accessors/*/
-2026-08-20T15:57:09.7919664Z /home/runner/.gradle/caches/*/kotlin-dsl/scripts/*/' and cache key: gradle-kotlin-dsl-v1-2980eb87aeccc55bbdfe78d5a7f6839a
-2026-08-20T15:57:09.8010038Z [command]/usr/bin/tar --posix -cf cache.tzst --exclude cache.tzst -P -C /home/runner/work/Advanced-Music-downloader/Advanced-Music-downloader --files-from manifest.txt --use-compress-program zstdmt
-2026-08-20T15:57:09.8349630Z Caching groovy-dsl with path '/home/runner/.gradle/caches/*/groovy-dsl/*/' and cache key: gradle-groovy-dsl-v1-89081b63181681d9de254e0d2c125cf7
-2026-08-20T15:57:09.8583151Z [command]/usr/bin/tar --posix -cf cache.tzst --exclude cache.tzst -P -C /home/runner/work/Advanced-Music-downloader/Advanced-Music-downloader --files-from manifest.txt --use-compress-program zstdmt
-2026-08-20T15:57:09.8677718Z [command]/usr/bin/tar --posix -cf cache.tzst --exclude cache.tzst -P -C /home/runner/work/Advanced-Music-downloader/Advanced-Music-downloader --files-from manifest.txt --use-compress-program zstdmt
-2026-08-20T15:57:09.9169175Z ##[warning]Failed to save cache entry with path '/home/runner/.gradle/caches/jars-*/*/' and key: gradle-instrumented-jars-v1-817a8d0be1eb0f19b5e1789eaa4084aa: Error: <h2>Our services aren't available right now</h2><p>We're working to restore all services as soon as possible. Please check back soon.</p>01SOHagAAAAB4xq6BLpWfQ7XXiE0nuPk7TVNQMzExMDAwMTA1MDQ1AEVkZ2U=
-2026-08-20T15:57:09.9442967Z ##[warning]Failed to save cache entry with path '/home/runner/.gradle/caches/*/groovy-dsl/*/' and key: gradle-groovy-dsl-v1-89081b63181681d9de254e0d2c125cf7: Error: <h2>Our services aren't available right now</h2><p>We're working to restore all services as soon as possible. Please check back soon.</p>01SOHagAAAADbC/MNhiSzRK5lO1K1Q97+TVNQMzExMDAwMTAyMDE3AEVkZ2U=
-2026-08-20T15:57:09.9863988Z ##[warning]Failed to save cache entry with path '/home/runner/.gradle/caches/*/kotlin-dsl/accessors/*/
-/home/runner/.gradle/caches/*/kotlin-dsl/scripts/*/' and key: gradle-kotlin-dsl-v1-2980eb87aeccc55bbdfe78d5a7f6839a: Error: <h2>Our services aren't available right now</h2><p>We're working to restore all services as soon as possible. Please check back soon.</p>01SOHagAAAADTHROkAC8sSaiDEBSYCZzMTVNQMzExMDAwMTA1MDM1AEVkZ2U=
-2026-08-20T15:57:10.1106856Z [command]/usr/bin/tar --posix -cf cache.tzst --exclude cache.tzst -P -C /home/runner/work/Advanced-Music-downloader/Advanced-Music-downloader --files-from manifest.txt --use-compress-program zstdmt
-2026-08-20T15:57:10.1349436Z Caching transforms with path '/home/runner/.gradle/caches/transforms-4/*/
-2026-08-20T15:57:10.1366539Z /home/runner/.gradle/caches/*/transforms/*/' and cache key: gradle-transforms-v1-085a1959c4fd549fd3b555d474577ab3
-2026-08-20T15:57:10.1974261Z ##[warning]Failed to save cache entry with path '/home/runner/.gradle/caches/8.9/generated-gradle-jars/gradle-api-8.9.jar' and key: gradle-generated-gradle-jars-v1-26cfecc158c44513d188405a5d2d0d9c: Error: <h2>Our services aren't available right now</h2><p>We're working to restore all services as soon as possible. Please check back soon.</p>01iOHagAAAAAfuSO4oxQuSbZcKKxkIJGjTVNQMzExMDAwMTAxMDIzAEVkZ2U=
-2026-08-20T15:57:10.2913095Z [command]/usr/bin/tar --posix -cf cache.tzst --exclude cache.tzst -P -C /home/runner/work/Advanced-Music-downloader/Advanced-Music-downloader --files-from manifest.txt --use-compress-program zstdmt
-2026-08-20T15:57:10.7292861Z ##[warning]Failed to save cache entry with path '/home/runner/.gradle/caches/modules-*/files-*/*/*/*/*' and key: gradle-dependencies-v1-92f5ca37c2751c7cddef33a7420418b2: Error: <h2>Our services aren't available right now</h2><p>We're working to restore all services as soon as possible. Please check back soon.</p>01iOHagAAAAAw+GTzUWgYQJ8KMAyR99XeTVNQMzExMDAwMTA3MDQ5AEVkZ2U=
-2026-08-20T15:57:11.3346123Z ##[warning]Failed to save cache entry with path '/home/runner/.gradle/caches/transforms-4/*/
-/home/runner/.gradle/caches/*/transforms/*/' and key: gradle-transforms-v1-085a1959c4fd549fd3b555d474577ab3: Error: <h2>Our services aren't available right now</h2><p>We're working to restore all services as soon as possible. Please check back soon.</p>01yOHagAAAABPOtO0Hx8QSJEaIVf3tButTVNQMzExMDAwMTAyMDQ3AEVkZ2U=
-2026-08-20T15:57:11.4056923Z Caching Gradle User Home with cache key: gradle-home-v1|Linux|build[e080f0fdc288b6f0c5023fd4b86f7a10]-5af6ca9a2ba7af0aeb7c24d4d86fde5f42197074
-2026-08-20T15:57:11.4129269Z [command]/usr/bin/tar --posix -cf cache.tzst --exclude cache.tzst -P -C /home/runner/work/Advanced-Music-downloader/Advanced-Music-downloader --files-from manifest.txt --use-compress-program zstdmt
-2026-08-20T15:57:11.5063182Z ##[warning]Failed to save cache entry with path '/home/runner/.gradle/caches,/home/runner/.gradle/notifications,/home/runner/.gradle/.setup-gradle' and key: gradle-home-v1|Linux|build[e080f0fdc288b6f0c5023fd4b86f7a10]-5af6ca9a2ba7af0aeb7c24d4d86fde5f42197074: Error: <h2>Our services aren't available right now</h2><p>We're working to restore all services as soon as possible. Please check back soon.</p>01yOHagAAAACsYiTXIpEQTqvtCIOzA2/nTVNQMzExMDAwMTA4MDM1AEVkZ2U=
-2026-08-20T15:57:11.5066418Z ##[endgroup]
-2026-08-20T15:57:11.5066671Z Generating Job Summary
-2026-08-20T15:57:11.5074077Z Completed post-action step
+﻿2026-08-20T16:04:06.2733627Z Node 20 is being deprecated. This workflow is running with Node 24 by default. If you need to temporarily use Node 20, you can set the ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true environment variable. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+2026-08-20T16:04:06.2734924Z Post job cleanup.
+2026-08-20T16:04:06.4724941Z In post-action step
+2026-08-20T16:04:06.4738271Z Stopping all Gradle daemons before saving Gradle User Home state
+2026-08-20T16:04:06.4739211Z Stopping Gradle daemons for /home/runner/gradle-installations/installs/gradle-8.9
+2026-08-20T16:04:06.4758588Z (node:2582) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+2026-08-20T16:04:06.4759651Z (Use `node --trace-deprecation ...` to show where the warning was created)
+2026-08-20T16:04:06.4768476Z [command]/home/runner/gradle-installations/installs/gradle-8.9/bin/gradle --stop
+2026-08-20T16:04:07.1942901Z Stopping Daemon(s)
+2026-08-20T16:04:07.1968723Z 1 Daemon stopped
+2026-08-20T16:04:07.2102143Z ##[group]Caching Gradle state
+2026-08-20T16:04:07.2215889Z Caching generated-gradle-jars with path '/home/runner/.gradle/caches/8.9/generated-gradle-jars/gradle-api-8.9.jar' and cache key: gradle-generated-gradle-jars-v1-26cfecc158c44513d188405a5d2d0d9c
+2026-08-20T16:04:07.2393016Z [command]/usr/bin/tar --posix -cf cache.tzst --exclude cache.tzst -P -C /home/runner/work/Advanced-Music-downloader/Advanced-Music-downloader --files-from manifest.txt --use-compress-program zstdmt
+2026-08-20T16:04:07.6699441Z Caching dependencies with path '/home/runner/.gradle/caches/modules-*/files-*/*/*/*/*' and cache key: gradle-dependencies-v1-4443e41b51f62fb3bafd92b78ab2758e
+2026-08-20T16:04:07.6865426Z Caching instrumented-jars with path '/home/runner/.gradle/caches/jars-*/*/' and cache key: gradle-instrumented-jars-v1-f6d7d9696aa619d2896fd1d4ffce5f63
+2026-08-20T16:04:07.7016637Z Caching kotlin-dsl with path '/home/runner/.gradle/caches/*/kotlin-dsl/accessors/*/
+2026-08-20T16:04:07.7018562Z /home/runner/.gradle/caches/*/kotlin-dsl/scripts/*/' and cache key: gradle-kotlin-dsl-v1-0387477a21644715e2d87c97e8550b6c
+2026-08-20T16:04:07.7202069Z [command]/usr/bin/tar --posix -cf cache.tzst --exclude cache.tzst -P -C /home/runner/work/Advanced-Music-downloader/Advanced-Music-downloader --files-from manifest.txt --use-compress-program zstdmt
+2026-08-20T16:04:07.7268850Z Caching groovy-dsl with path '/home/runner/.gradle/caches/*/groovy-dsl/*/' and cache key: gradle-groovy-dsl-v1-cbf96189aae95f07d35eb65b09c28fa8
+2026-08-20T16:04:07.7668964Z [command]/usr/bin/tar --posix -cf cache.tzst --exclude cache.tzst -P -C /home/runner/work/Advanced-Music-downloader/Advanced-Music-downloader --files-from manifest.txt --use-compress-program zstdmt
+2026-08-20T16:04:07.8014866Z ##[warning]Failed to save cache entry with path '/home/runner/.gradle/caches/jars-*/*/' and key: gradle-instrumented-jars-v1-f6d7d9696aa619d2896fd1d4ffce5f63: Error: <h2>Our services aren't available right now</h2><p>We're working to restore all services as soon as possible. Please check back soon.</p>0dyWHagAAAADhvwMI1Mh8RqR1EX3tSXQBUEhYMzFFREdFMDIxMABFZGdl
+2026-08-20T16:04:07.8229152Z [command]/usr/bin/tar --posix -cf cache.tzst --exclude cache.tzst -P -C /home/runner/work/Advanced-Music-downloader/Advanced-Music-downloader --files-from manifest.txt --use-compress-program zstdmt
+2026-08-20T16:04:07.8265922Z ##[warning]Failed to save cache entry with path '/home/runner/.gradle/caches/*/kotlin-dsl/accessors/*/
+/home/runner/.gradle/caches/*/kotlin-dsl/scripts/*/' and key: gradle-kotlin-dsl-v1-0387477a21644715e2d87c97e8550b6c: Error: <h2>Our services aren't available right now</h2><p>We're working to restore all services as soon as possible. Please check back soon.</p>0dyWHagAAAADWvyfHPFUySZRUvcfcuviEUEhYMzFFREdFMDYxMABFZGdl
+2026-08-20T16:04:07.8298452Z ##[warning]Failed to save cache entry with path '/home/runner/.gradle/caches/8.9/generated-gradle-jars/gradle-api-8.9.jar' and key: gradle-generated-gradle-jars-v1-26cfecc158c44513d188405a5d2d0d9c: Error: <h2>Our services aren't available right now</h2><p>We're working to restore all services as soon as possible. Please check back soon.</p>0dyWHagAAAADzI9Wo9F/ZTYlGQz7/4vPDUEhYMzFFREdFMDIwNgBFZGdl
+2026-08-20T16:04:07.9207268Z ##[warning]Failed to save cache entry with path '/home/runner/.gradle/caches/*/groovy-dsl/*/' and key: gradle-groovy-dsl-v1-cbf96189aae95f07d35eb65b09c28fa8: Error: <h2>Our services aren't available right now</h2><p>We're working to restore all services as soon as possible. Please check back soon.</p>0dyWHagAAAABAyR6FB2yCQZFPNpp2xivaUEhYMzFFREdFMDYwNwBFZGdl
+2026-08-20T16:04:08.1791976Z Caching transforms with path '/home/runner/.gradle/caches/transforms-4/*/
+2026-08-20T16:04:08.1792707Z /home/runner/.gradle/caches/*/transforms/*/' and cache key: gradle-transforms-v1-111ca28a5944cf9fff38d107a075eba4
+2026-08-20T16:04:08.2455455Z [command]/usr/bin/tar --posix -cf cache.tzst --exclude cache.tzst -P -C /home/runner/work/Advanced-Music-downloader/Advanced-Music-downloader --files-from manifest.txt --use-compress-program zstdmt
+2026-08-20T16:04:08.6218352Z [command]/usr/bin/tar --posix -cf cache.tzst --exclude cache.tzst -P -C /home/runner/work/Advanced-Music-downloader/Advanced-Music-downloader --files-from manifest.txt --use-compress-program zstdmt
+2026-08-20T16:04:09.0625066Z ##[warning]Failed to save cache entry with path '/home/runner/.gradle/caches/modules-*/files-*/*/*/*/*' and key: gradle-dependencies-v1-4443e41b51f62fb3bafd92b78ab2758e: Error: <h2>Our services aren't available right now</h2><p>We're working to restore all services as soon as possible. Please check back soon.</p>0eSWHagAAAABLE5wUG1YTT6NVNKwf3UpAUEhYMzFFREdFMDUxMwBFZGdl
+2026-08-20T16:04:10.0298945Z ##[warning]Failed to save cache entry with path '/home/runner/.gradle/caches/transforms-4/*/
+/home/runner/.gradle/caches/*/transforms/*/' and key: gradle-transforms-v1-111ca28a5944cf9fff38d107a075eba4: Error: <h2>Our services aren't available right now</h2><p>We're working to restore all services as soon as possible. Please check back soon.</p>0eiWHagAAAAD08+7VJRZrRJcpfgafMTnyUEhYMzFFREdFMDYxMwBFZGdl
+2026-08-20T16:04:10.3477639Z Caching Gradle User Home with cache key: gradle-home-v1|Linux|build[e080f0fdc288b6f0c5023fd4b86f7a10]-e5d3752e7e8ede46fca9afa3805ada9a7842ee38
+2026-08-20T16:04:10.3583009Z [command]/usr/bin/tar --posix -cf cache.tzst --exclude cache.tzst -P -C /home/runner/work/Advanced-Music-downloader/Advanced-Music-downloader --files-from manifest.txt --use-compress-program zstdmt
+2026-08-20T16:04:10.4561114Z ##[warning]Failed to save cache entry with path '/home/runner/.gradle/caches,/home/runner/.gradle/notifications,/home/runner/.gradle/.setup-gradle' and key: gradle-home-v1|Linux|build[e080f0fdc288b6f0c5023fd4b86f7a10]-e5d3752e7e8ede46fca9afa3805ada9a7842ee38: Error: <h2>Our services aren't available right now</h2><p>We're working to restore all services as soon as possible. Please check back soon.</p>0eiWHagAAAAB16rEKVA3pQZkg5XCM6m00UEhYMzFFREdFMDIyMQBFZGdl
+2026-08-20T16:04:10.4564263Z ##[endgroup]
+2026-08-20T16:04:10.4565928Z Generating Job Summary
+2026-08-20T16:04:10.4579852Z Completed post-action step

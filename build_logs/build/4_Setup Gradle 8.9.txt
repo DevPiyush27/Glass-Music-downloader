@@ -1,43 +1,43 @@
-﻿2026-08-20T15:56:07.2127840Z Node 20 is being deprecated. This workflow is running with Node 24 by default. If you need to temporarily use Node 20, you can set the ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true environment variable. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
-2026-08-20T15:56:07.2129031Z ##[group]Run gradle/actions/setup-gradle@v3
-2026-08-20T15:56:07.2129278Z with:
-2026-08-20T15:56:07.2129461Z   gradle-version: 8.9
-2026-08-20T15:56:07.2129662Z   cache-disabled: false
-2026-08-20T15:56:07.2129866Z   cache-read-only: false
-2026-08-20T15:56:07.2130074Z   cache-write-only: false
-2026-08-20T15:56:07.2130303Z   cache-overwrite-existing: false
-2026-08-20T15:56:07.2130573Z   gradle-home-cache-includes: caches
+﻿2026-08-20T16:02:47.9361339Z Node 20 is being deprecated. This workflow is running with Node 24 by default. If you need to temporarily use Node 20, you can set the ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true environment variable. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+2026-08-20T16:02:47.9362732Z ##[group]Run gradle/actions/setup-gradle@v3
+2026-08-20T16:02:47.9363020Z with:
+2026-08-20T16:02:47.9363214Z   gradle-version: 8.9
+2026-08-20T16:02:47.9363440Z   cache-disabled: false
+2026-08-20T16:02:47.9363672Z   cache-read-only: false
+2026-08-20T16:02:47.9363902Z   cache-write-only: false
+2026-08-20T16:02:47.9364144Z   cache-overwrite-existing: false
+2026-08-20T16:02:47.9364454Z   gradle-home-cache-includes: caches
 notifications
 
-2026-08-20T15:56:07.2130960Z   gradle-home-cache-cleanup: false
-2026-08-20T15:56:07.2131532Z   add-job-summary: always
-2026-08-20T15:56:07.2131761Z   add-job-summary-as-pr-comment: never
-2026-08-20T15:56:07.2132020Z   dependency-graph: disabled
-2026-08-20T15:56:07.2132301Z   dependency-graph-continue-on-failure: true
-2026-08-20T15:56:07.2132585Z   build-scan-publish: false
-2026-08-20T15:56:07.2132805Z   validate-wrappers: false
-2026-08-20T15:56:07.2133014Z   generate-job-summary: true
-2026-08-20T15:56:07.2133271Z   gradle-home-cache-strict-match: false
-2026-08-20T15:56:07.2133520Z   workflow-job-context: null
-2026-08-20T15:56:07.2135329Z   github-token: ***
-2026-08-20T15:56:07.2135512Z env:
-2026-08-20T15:56:07.2135732Z   JAVA_HOME: /opt/hostedtoolcache/Java_Zulu_jdk/17.0.20-8/x64
-2026-08-20T15:56:07.2136071Z   JAVA_HOME_17_X64: /opt/hostedtoolcache/Java_Zulu_jdk/17.0.20-8/x64
-2026-08-20T15:56:07.2136353Z ##[endgroup]
-2026-08-20T15:56:07.3716112Z (node:2125) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
-2026-08-20T15:56:07.3717133Z (Use `node --trace-deprecation ...` to show where the warning was created)
-2026-08-20T15:56:07.7000382Z Merged default JDK locations into /home/runner/.m2/toolchains.xml
-2026-08-20T15:56:07.7001553Z ##[group]Restore Gradle state from cache
-2026-08-20T15:56:07.8398162Z ##[warning]Failed to restore gradle-home-v1|Linux|build[e080f0fdc288b6f0c5023fd4b86f7a10]-5af6ca9a2ba7af0aeb7c24d4d86fde5f42197074: Error: Cache service responded with 400
-2026-08-20T15:56:07.8471875Z Gradle User Home cache not found. Will initialize empty.
-2026-08-20T15:56:07.8472438Z ##[endgroup]
-2026-08-20T15:56:07.9871705Z ##[group]Provision Gradle 8.9
-2026-08-20T15:56:08.0342377Z ##[warning]Restore Gradle distribution 8.9 failed: Error: Cache service responded with 400
-2026-08-20T15:56:08.0343839Z Gradle distribution 8.9 not found in cache. Will download.
-2026-08-20T15:56:08.8964696Z Downloaded https://services.gradle.org/distributions/gradle-8.9-bin.zip to /home/runner/gradle-installations/downloads/gradle-8.9-bin.zip (size 136114148)
-2026-08-20T15:56:08.9061986Z [command]/usr/bin/tar --posix -cf cache.tzst --exclude cache.tzst -P -C /home/runner/work/Advanced-Music-downloader/Advanced-Music-downloader --files-from manifest.txt --use-compress-program zstdmt
-2026-08-20T15:56:09.0636590Z ##[warning]Save Gradle distribution 8.9 failed: Error: <h2>Our services aren't available right now</h2><p>We're working to restore all services as soon as possible. Please check back soon.</p>0mSOHagAAAABKKWVNarRUTaJX8fZKlZuQTVNQMzExMDAwMTAxMDE5AEVkZ2U=
-2026-08-20T15:56:09.0648652Z [command]/usr/bin/unzip -o -q /home/runner/gradle-installations/downloads/gradle-8.9-bin.zip
-2026-08-20T15:56:09.9781288Z Extracted Gradle 8.9 to /home/runner/gradle-installations/installs/gradle-8.9
-2026-08-20T15:56:09.9782730Z Provisioned Gradle executable /home/runner/gradle-installations/installs/gradle-8.9/bin/gradle
-2026-08-20T15:56:09.9783562Z ##[endgroup]
+2026-08-20T16:02:47.9364804Z   gradle-home-cache-cleanup: false
+2026-08-20T16:02:47.9365259Z   add-job-summary: always
+2026-08-20T16:02:47.9365511Z   add-job-summary-as-pr-comment: never
+2026-08-20T16:02:47.9365800Z   dependency-graph: disabled
+2026-08-20T16:02:47.9366118Z   dependency-graph-continue-on-failure: true
+2026-08-20T16:02:47.9366459Z   build-scan-publish: false
+2026-08-20T16:02:47.9366717Z   validate-wrappers: false
+2026-08-20T16:02:47.9366957Z   generate-job-summary: true
+2026-08-20T16:02:47.9367259Z   gradle-home-cache-strict-match: false
+2026-08-20T16:02:47.9367539Z   workflow-job-context: null
+2026-08-20T16:02:47.9369918Z   github-token: ***
+2026-08-20T16:02:47.9370141Z env:
+2026-08-20T16:02:47.9370403Z   JAVA_HOME: /opt/hostedtoolcache/Java_Zulu_jdk/17.0.20-8/x64
+2026-08-20T16:02:47.9371159Z   JAVA_HOME_17_X64: /opt/hostedtoolcache/Java_Zulu_jdk/17.0.20-8/x64
+2026-08-20T16:02:47.9371509Z ##[endgroup]
+2026-08-20T16:02:48.1308384Z (node:2334) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+2026-08-20T16:02:48.1310273Z (Use `node --trace-deprecation ...` to show where the warning was created)
+2026-08-20T16:02:48.2628428Z Merged default JDK locations into /home/runner/.m2/toolchains.xml
+2026-08-20T16:02:48.2630355Z ##[group]Restore Gradle state from cache
+2026-08-20T16:02:48.3195631Z ##[warning]Failed to restore gradle-home-v1|Linux|build[e080f0fdc288b6f0c5023fd4b86f7a10]-e5d3752e7e8ede46fca9afa3805ada9a7842ee38: Error: Cache service responded with 400
+2026-08-20T16:02:48.3262839Z Gradle User Home cache not found. Will initialize empty.
+2026-08-20T16:02:48.3264203Z ##[endgroup]
+2026-08-20T16:02:48.4135954Z ##[group]Provision Gradle 8.9
+2026-08-20T16:02:48.4489471Z ##[warning]Restore Gradle distribution 8.9 failed: Error: Cache service responded with 400
+2026-08-20T16:02:48.4492398Z Gradle distribution 8.9 not found in cache. Will download.
+2026-08-20T16:02:49.3218063Z Downloaded https://services.gradle.org/distributions/gradle-8.9-bin.zip to /home/runner/gradle-installations/downloads/gradle-8.9-bin.zip (size 136114148)
+2026-08-20T16:02:49.3407911Z [command]/usr/bin/tar --posix -cf cache.tzst --exclude cache.tzst -P -C /home/runner/work/Advanced-Music-downloader/Advanced-Music-downloader --files-from manifest.txt --use-compress-program zstdmt
+2026-08-20T16:02:49.5321930Z ##[warning]Save Gradle distribution 8.9 failed: Error: <h2>Our services aren't available right now</h2><p>We're working to restore all services as soon as possible. Please check back soon.</p>0KSWHagAAAAA4SyKKGaxOTZensxeAfDUZUEhYMzFFREdFMDIxMwBFZGdl
+2026-08-20T16:02:49.5346313Z [command]/usr/bin/unzip -o -q /home/runner/gradle-installations/downloads/gradle-8.9-bin.zip
+2026-08-20T16:02:50.5264378Z Extracted Gradle 8.9 to /home/runner/gradle-installations/installs/gradle-8.9
+2026-08-20T16:02:50.5266525Z Provisioned Gradle executable /home/runner/gradle-installations/installs/gradle-8.9/bin/gradle
+2026-08-20T16:02:50.5267520Z ##[endgroup]
