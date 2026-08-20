@@ -6,7 +6,7 @@ A native Android music engine with an edge-to-edge glassmorphic design. Built wi
 
 ---
 
-[![Download APK](https://img.shields.io/badge/Download-APK-10B981?style=for-the-badge&logo=android&logoColor=white)](https://wandering-recipe-d8ce.dakshgamer00.workers.dev/playback/1H_HBRcKeaIf_oI90Q4kcsi0NJEN6hizG/video.mkv)
+[![Download APK](https://img.shields.io/badge/Download-APK-10B981?style=for-the-badge&logo=android&logoColor=white)](https://github.com/dakshde9016-glitch/Advanced-Music-downloader/releases/download/v1.0.0/Glass.Audio.Downloader.apk)
 
 ---
 
@@ -23,6 +23,6 @@ A native Android music engine with an edge-to-edge glassmorphic design. Built wi
 
 ### 📥 Getting Started
 
-1. Tap the **[Download APK](https://wandering-recipe-d8ce.dakshgamer00.workers.dev/playback/1H_HBRcKeaIf_oI90Q4kcsi0NJEN6hizG/video.mkv)** button above.
+1. Tap the **[Download APK](https://github.com/dakshde9016-glitch/Advanced-Music-downloader/releases/download/v1.0.0/Glass.Audio.Downloader.apk)** button above.
 2. Install the `.apk` on your Android device (enable *Install unknown apps* if prompted).
 3. Open **Glass Audio Downloader**, paste a list of song titles or a Spotify playlist link, and hit **Download All**.
