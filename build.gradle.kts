@@ -1,7 +1,6 @@
-// build.gradle.kts (Project Level)
 plugins {
-    alias(libs.plugins.android.application) apply false
-    alias(libs.plugins.kotlin.android) apply false
-    alias(libs.plugins.kotlin.serialization) apply false
+    id("com.android.application") version "8.5.2" apply false
+    id("org.jetbrains.kotlin.android") version "1.9.24" apply false
+    id("org.jetbrains.kotlin.plugin.serialization") version "1.9.24" apply false
     id("com.chaquo.python") version "15.0.1" apply false
 }

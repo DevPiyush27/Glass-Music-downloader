@@ -14,5 +14,5 @@ dependencyResolutionManagement {
         maven { url = uri("https://chaquo.com/maven") }
     }
 }
-rootProject.name = "GlassAudioDownloader"
+rootProject.name = "Advanced-Music-downloader"
 include(":app")
