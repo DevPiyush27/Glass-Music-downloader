@@ -5,6 +5,8 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -13,10 +15,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 enum class AudioQualityOption(val title: String, val desc: String) {
-    BEST("Best Available", "Highest source quality"),
     HIGH("High (320 kbps)", "Near lossless MP3/M4A"),
     NORMAL("Normal (192 kbps)", "Standard streaming quality"),
     LOW("Data Saver (128 kbps)", "Smaller file size")
@@ -47,7 +49,8 @@ fun GlassBackground(
 @Composable
 fun GlassCard(
     modifier: Modifier = Modifier,
-    shape: Shape = RoundedCornerShape(20.dp),
+    cornerRadius: Dp = 20.dp,
+    shape: Shape = RoundedCornerShape(cornerRadius),
     content: @Composable ColumnScope.() -> Unit
 ) {
     Card(
@@ -110,9 +113,11 @@ fun GlassTextField(
 fun GlassButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    text: String? = null,
+    leadingIcon: @Composable (() -> Unit)? = null,
     enabled: Boolean = true,
     shape: Shape = RoundedCornerShape(14.dp),
-    content: @Composable RowScope.() -> Unit
+    content: (@Composable RowScope.() -> Unit)? = null
 ) {
     Button(
         onClick = onClick,
@@ -126,17 +131,35 @@ fun GlassButton(
             disabledContentColor = Color.White.copy(alpha = 0.4f)
         )
     ) {
-        content()
+        if (content != null) {
+            content()
+        } else {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center
+            ) {
+                if (leadingIcon != null) {
+                    leadingIcon()
+                    Spacer(modifier = Modifier.width(8.dp))
+                }
+                if (text != null) {
+                    Text(text = text)
+                }
+            }
+        }
     }
 }
 
 @Composable
 fun GlassChip(
-    selected: Boolean,
-    onClick: () -> Unit,
-    label: String,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    title: String = "",
+    label: String = title,
+    selected: Boolean = false,
+    onClick: () -> Unit = {},
+    onRemove: (() -> Unit)? = null
 ) {
+    val displayLabel = if (title.isNotEmpty()) title else label
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(20.dp))
@@ -150,13 +173,28 @@ fun GlassChip(
                 RoundedCornerShape(20.dp)
             )
             .clickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 8.dp)
+            .padding(horizontal = 12.dp, vertical = 6.dp)
     ) {
-        Text(
-            text = label,
-            color = if (selected) Color.White else Color.White.copy(alpha = 0.7f),
-            style = MaterialTheme.typography.labelMedium
-        )
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Text(
+                text = displayLabel,
+                color = if (selected) Color.White else Color.White.copy(alpha = 0.7f),
+                style = MaterialTheme.typography.labelMedium
+            )
+            if (onRemove != null) {
+                Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = "Remove",
+                    tint = Color.White.copy(alpha = 0.7f),
+                    modifier = Modifier
+                        .size(16.dp)
+                        .clickable(onClick = onRemove)
+                )
+            }
+        }
     }
 }
 
@@ -164,9 +202,9 @@ fun GlassChip(
 @Composable
 fun GlassDropdownMenu(
     selectedOption: AudioQualityOption,
-    options: List<AudioQualityOption>,
     onOptionSelected: (AudioQualityOption) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    options: List<AudioQualityOption> = AudioQualityOption.values().toList()
 ) {
     var expanded by remember { mutableStateOf(false) }
 
