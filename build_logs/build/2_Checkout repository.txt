@@ -1,0 +1,74 @@
+﻿2026-08-20T15:55:53.0206940Z Node 20 is being deprecated. This workflow is running with Node 24 by default. If you need to temporarily use Node 20, you can set the ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true environment variable. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+2026-08-20T15:55:53.0213349Z ##[group]Run actions/checkout@v4
+2026-08-20T15:55:53.0213787Z with:
+2026-08-20T15:55:53.0214211Z   repository: dakshde9016-glitch/Advanced-Music-downloader
+2026-08-20T15:55:53.0216169Z   token: ***
+2026-08-20T15:55:53.0216437Z   ssh-strict: true
+2026-08-20T15:55:53.0216705Z   ssh-user: git
+2026-08-20T15:55:53.0216961Z   persist-credentials: true
+2026-08-20T15:55:53.0217280Z   clean: true
+2026-08-20T15:55:53.0217580Z   sparse-checkout-cone-mode: true
+2026-08-20T15:55:53.0217878Z   fetch-depth: 1
+2026-08-20T15:55:53.0218171Z   fetch-tags: false
+2026-08-20T15:55:53.0218620Z   show-progress: true
+2026-08-20T15:55:53.0218925Z   lfs: false
+2026-08-20T15:55:53.0219166Z   submodules: false
+2026-08-20T15:55:53.0219529Z   set-safe-directory: true
+2026-08-20T15:55:53.0219817Z   allow-unsafe-pr-checkout: false
+2026-08-20T15:55:53.0220222Z ##[endgroup]
+2026-08-20T15:55:53.1051462Z Syncing repository: dakshde9016-glitch/Advanced-Music-downloader
+2026-08-20T15:55:53.1053457Z ##[group]Getting Git version info
+2026-08-20T15:55:53.1054382Z Working directory is '/home/runner/work/Advanced-Music-downloader/Advanced-Music-downloader'
+2026-08-20T15:55:53.1055710Z [command]/usr/bin/git version
+2026-08-20T15:55:53.1179955Z git version 2.55.0
+2026-08-20T15:55:53.1183176Z ##[endgroup]
+2026-08-20T15:55:53.1189979Z Temporarily overriding HOME='/home/runner/work/_temp/a97d5006-1494-41a9-95cc-16c8b64bb0f6' before making global git config changes
+2026-08-20T15:55:53.1192019Z Adding repository directory to the temporary git global config as a safe directory
+2026-08-20T15:55:53.1194419Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/Advanced-Music-downloader/Advanced-Music-downloader
+2026-08-20T15:55:53.1243073Z Deleting the contents of '/home/runner/work/Advanced-Music-downloader/Advanced-Music-downloader'
+2026-08-20T15:55:53.1247726Z ##[group]Initializing the repository
+2026-08-20T15:55:53.1252477Z [command]/usr/bin/git init /home/runner/work/Advanced-Music-downloader/Advanced-Music-downloader
+2026-08-20T15:55:53.1328132Z hint: Using 'master' as the name for the initial branch. This default branch name
+2026-08-20T15:55:53.1329623Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+2026-08-20T15:55:53.1330964Z hint: to use in all of your new repositories, which will suppress this warning,
+2026-08-20T15:55:53.1331946Z hint: call:
+2026-08-20T15:55:53.1332571Z hint:
+2026-08-20T15:55:53.1333157Z hint: 	git config --global init.defaultBranch <name>
+2026-08-20T15:55:53.1333871Z hint:
+2026-08-20T15:55:53.1334470Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+2026-08-20T15:55:53.1335348Z hint: 'development'. The just-created branch can be renamed via this command:
+2026-08-20T15:55:53.1336102Z hint:
+2026-08-20T15:55:53.1336607Z hint: 	git branch -m <name>
+2026-08-20T15:55:53.1337277Z hint:
+2026-08-20T15:55:53.1337874Z hint: Disable this message with "git config set advice.defaultBranchName false"
+2026-08-20T15:55:53.1339251Z Initialized empty Git repository in /home/runner/work/Advanced-Music-downloader/Advanced-Music-downloader/.git/
+2026-08-20T15:55:53.1341511Z [command]/usr/bin/git remote add origin https://github.com/dakshde9016-glitch/Advanced-Music-downloader
+2026-08-20T15:55:53.2181822Z ##[endgroup]
+2026-08-20T15:55:53.2182771Z ##[group]Disabling automatic garbage collection
+2026-08-20T15:55:53.2186434Z [command]/usr/bin/git config --local gc.auto 0
+2026-08-20T15:55:53.2214383Z ##[endgroup]
+2026-08-20T15:55:53.2215184Z ##[group]Setting up auth
+2026-08-20T15:55:53.2222104Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-08-20T15:55:53.2256700Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-08-20T15:55:53.2605710Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-08-20T15:55:53.2629903Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-08-20T15:55:53.2787554Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-08-20T15:55:53.2811682Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-08-20T15:55:53.2982262Z [command]/usr/bin/git config --local http.https://github.com/.extraheader AUTHORIZATION: basic ***
+2026-08-20T15:55:53.3012318Z ##[endgroup]
+2026-08-20T15:55:53.3013222Z ##[group]Fetching the repository
+2026-08-20T15:55:53.3020649Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +5af6ca9a2ba7af0aeb7c24d4d86fde5f42197074:refs/remotes/origin/main
+2026-08-20T15:55:53.8486599Z From https://github.com/dakshde9016-glitch/Advanced-Music-downloader
+2026-08-20T15:55:53.8488090Z  * [new ref]         5af6ca9a2ba7af0aeb7c24d4d86fde5f42197074 -> origin/main
+2026-08-20T15:55:53.8490751Z ##[endgroup]
+2026-08-20T15:55:53.8498303Z ##[group]Determining the checkout info
+2026-08-20T15:55:53.8499205Z ##[endgroup]
+2026-08-20T15:55:53.8499962Z [command]/usr/bin/git sparse-checkout disable
+2026-08-20T15:55:53.8542706Z [command]/usr/bin/git config --local --unset-all extensions.worktreeConfig
+2026-08-20T15:55:53.8568078Z ##[group]Checking out the ref
+2026-08-20T15:55:53.8573585Z [command]/usr/bin/git checkout --progress --force -B main refs/remotes/origin/main
+2026-08-20T15:55:53.8622667Z Switched to a new branch 'main'
+2026-08-20T15:55:53.8625365Z branch 'main' set up to track 'origin/main'.
+2026-08-20T15:55:53.8630171Z ##[endgroup]
+2026-08-20T15:55:53.8664290Z [command]/usr/bin/git log -1 --format=%H
+2026-08-20T15:55:53.8684022Z 5af6ca9a2ba7af0aeb7c24d4d86fde5f42197074
