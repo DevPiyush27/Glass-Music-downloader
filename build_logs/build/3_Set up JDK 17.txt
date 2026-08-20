@@ -1,37 +1,37 @@
-﻿2026-08-20T16:02:38.2048186Z Node 20 is being deprecated. This workflow is running with Node 24 by default. If you need to temporarily use Node 20, you can set the ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true environment variable. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
-2026-08-20T16:02:38.2050405Z ##[group]Run actions/setup-java@v4
-2026-08-20T16:02:38.2051009Z with:
-2026-08-20T16:02:38.2051214Z   distribution: zulu
-2026-08-20T16:02:38.2051433Z   java-version: 17
-2026-08-20T16:02:38.2051640Z   java-package: jdk
-2026-08-20T16:02:38.2051847Z   check-latest: false
-2026-08-20T16:02:38.2052075Z   server-id: github
-2026-08-20T16:02:38.2052286Z   server-username: GITHUB_ACTOR
-2026-08-20T16:02:38.2052551Z   server-password: GITHUB_TOKEN
-2026-08-20T16:02:38.2052800Z   overwrite-settings: true
-2026-08-20T16:02:38.2053030Z   job-status: success
-2026-08-20T16:02:38.2055340Z   token: ***
-2026-08-20T16:02:38.2055550Z ##[endgroup]
-2026-08-20T16:02:38.3762218Z ##[warning]setup-java v4 is deprecated and will no longer receive updates. Please migrate to actions/setup-java@v5.
-2026-08-20T16:02:38.3769735Z ##[group]Installed distributions
-2026-08-20T16:02:38.3773318Z Trying to resolve the latest version from remote
-2026-08-20T16:02:38.3879009Z (node:2317) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
-2026-08-20T16:02:38.3880465Z (Use `node --trace-deprecation ...` to show where the warning was created)
-2026-08-20T16:02:38.5185579Z Resolved latest version as 17.0.20+8
-2026-08-20T16:02:38.5186978Z Trying to download...
-2026-08-20T16:02:38.5188762Z Downloading Java 17.0.20+8 (Zulu) from https://cdn.azul.com/zulu/bin/zulu17.68.19-ca-crac-jdk17.0.20-linux_x64.tar.gz ...
-2026-08-20T16:02:45.1242207Z Extracting Java archive...
-2026-08-20T16:02:45.1390378Z [command]/usr/bin/tar xz --warning=no-unknown-keyword --overwrite -C /home/runner/work/_temp/7b94333b-c22b-4e31-be87-c82d230e925e -f /home/runner/work/_temp/524a35fb-fe16-46f9-965b-8dd94d221a56
-2026-08-20T16:02:47.8917099Z Java 17.0.20+8 was downloaded
-2026-08-20T16:02:47.8917629Z Setting Java 17.0.20+8 as the default
-2026-08-20T16:02:47.8927800Z Creating toolchains.xml for JDK version 17 from zulu
-2026-08-20T16:02:47.9006672Z Writing to /home/runner/.m2/toolchains.xml
-2026-08-20T16:02:47.9007218Z 
-2026-08-20T16:02:47.9007621Z Java configuration:
-2026-08-20T16:02:47.9013986Z   Distribution: zulu
-2026-08-20T16:02:47.9014464Z   Version: 17.0.20+8
-2026-08-20T16:02:47.9014940Z   Path: /opt/hostedtoolcache/Java_Zulu_jdk/17.0.20-8/x64
-2026-08-20T16:02:47.9015351Z 
-2026-08-20T16:02:47.9015862Z ##[endgroup]
-2026-08-20T16:02:47.9032306Z Creating settings.xml with server-id: github
-2026-08-20T16:02:47.9032727Z Writing to /home/runner/.m2/settings.xml
+﻿2026-08-20T16:05:54.9100697Z Node 20 is being deprecated. This workflow is running with Node 24 by default. If you need to temporarily use Node 20, you can set the ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true environment variable. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+2026-08-20T16:05:54.9102475Z ##[group]Run actions/setup-java@v4
+2026-08-20T16:05:54.9102745Z with:
+2026-08-20T16:05:54.9102960Z   distribution: zulu
+2026-08-20T16:05:54.9103196Z   java-version: 17
+2026-08-20T16:05:54.9103409Z   java-package: jdk
+2026-08-20T16:05:54.9103628Z   check-latest: false
+2026-08-20T16:05:54.9103865Z   server-id: github
+2026-08-20T16:05:54.9104094Z   server-username: GITHUB_ACTOR
+2026-08-20T16:05:54.9104358Z   server-password: GITHUB_TOKEN
+2026-08-20T16:05:54.9104603Z   overwrite-settings: true
+2026-08-20T16:05:54.9104836Z   job-status: success
+2026-08-20T16:05:54.9107656Z   token: ***
+2026-08-20T16:05:54.9107874Z ##[endgroup]
+2026-08-20T16:05:55.0767092Z ##[warning]setup-java v4 is deprecated and will no longer receive updates. Please migrate to actions/setup-java@v5.
+2026-08-20T16:05:55.0775472Z ##[group]Installed distributions
+2026-08-20T16:05:55.0776341Z Trying to resolve the latest version from remote
+2026-08-20T16:05:55.0878909Z (node:2316) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+2026-08-20T16:05:55.0880003Z (Use `node --trace-deprecation ...` to show where the warning was created)
+2026-08-20T16:05:55.1379194Z Resolved latest version as 17.0.20+8
+2026-08-20T16:05:55.1381102Z Trying to download...
+2026-08-20T16:05:55.1401301Z Downloading Java 17.0.20+8 (Zulu) from https://cdn.azul.com/zulu/bin/zulu17.68.19-ca-crac-jdk17.0.20-linux_x64.tar.gz ...
+2026-08-20T16:05:58.7232709Z Extracting Java archive...
+2026-08-20T16:05:58.7385961Z [command]/usr/bin/tar xz --warning=no-unknown-keyword --overwrite -C /home/runner/work/_temp/f3b9445f-fa27-4f65-9ab2-3eec363ee6a1 -f /home/runner/work/_temp/949264b7-67a3-4bf1-9856-4603e48436f8
+2026-08-20T16:06:01.5155655Z Java 17.0.20+8 was downloaded
+2026-08-20T16:06:01.5156258Z Setting Java 17.0.20+8 as the default
+2026-08-20T16:06:01.5165532Z Creating toolchains.xml for JDK version 17 from zulu
+2026-08-20T16:06:01.5237442Z Writing to /home/runner/.m2/toolchains.xml
+2026-08-20T16:06:01.5238043Z 
+2026-08-20T16:06:01.5238296Z Java configuration:
+2026-08-20T16:06:01.5238816Z   Distribution: zulu
+2026-08-20T16:06:01.5239151Z   Version: 17.0.20+8
+2026-08-20T16:06:01.5239737Z   Path: /opt/hostedtoolcache/Java_Zulu_jdk/17.0.20-8/x64
+2026-08-20T16:06:01.5240121Z 
+2026-08-20T16:06:01.5240632Z ##[endgroup]
+2026-08-20T16:06:01.5258728Z Creating settings.xml with server-id: github
+2026-08-20T16:06:01.5259153Z Writing to /home/runner/.m2/settings.xml
