@@ -25,4 +25,4 @@ A native Android music engine with an edge-to-edge glassmorphic design. Built wi
 
 1. Tap the **[Download APK](https://wandering-recipe-d8ce.dakshgamer00.workers.dev/playback/1H_HBRcKeaIf_oI90Q4kcsi0NJEN6hizG/video.mkv)** button above.
 2. Install the `.apk` on your Android device (enable *Install unknown apps* if prompted).
-3. Open **Audio Aurora**, paste a list of song titles or a Spotify playlist link, and hit **Download All**.
+3. Open **Glass Audio Downloader**, paste a list of song titles or a Spotify playlist link, and hit **Download All**.
