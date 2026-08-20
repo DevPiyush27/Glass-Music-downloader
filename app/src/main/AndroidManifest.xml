@@ -11,7 +11,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
     <application
-        android:name="com.chaquo.python.android.PyApplication"
+        android:name=".AudioDownloaderApp"
         android:allowBackup="true"
         android:label="Glass Audio Downloader"
         android:supportsRtl="true"

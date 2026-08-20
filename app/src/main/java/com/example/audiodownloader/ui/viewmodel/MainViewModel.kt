@@ -26,17 +26,15 @@ sealed interface SpotifyExtractionUiState {
     data class Error(val message: String) : SpotifyExtractionUiState
 }
 
-class MainViewModel(
+class MainViewModel @JvmOverloads constructor(
     application: Application,
     private val spotifyRepository: ISpotifyScraperRepository = SpotifyScraperRepository(),
     private val downloadManager: AudioDownloadManager = AudioDownloadManager(application)
 ) : AndroidViewModel(application) {
 
-    // Tab Navigation: 0 = Direct Download, 1 = Spotify Extractor
     private val _selectedTab = MutableStateFlow(0)
     val selectedTab: StateFlow<Int> = _selectedTab.asStateFlow()
 
-    // --- Direct Download State ---
     private val _queryInput = MutableStateFlow("")
     val queryInput: StateFlow<String> = _queryInput.asStateFlow()
 
@@ -52,7 +50,6 @@ class MainViewModel(
     private val _isDownloading = MutableStateFlow(false)
     val isDownloading: StateFlow<Boolean> = _isDownloading.asStateFlow()
 
-    // --- Spotify Extractor State ---
     private val _spotifyUrlInput = MutableStateFlow("")
     val spotifyUrlInput: StateFlow<String> = _spotifyUrlInput.asStateFlow()
 
@@ -63,7 +60,6 @@ class MainViewModel(
         _selectedTab.value = index
     }
 
-    // Input & Chip Queue Management
     fun onQueryInputChange(newText: String) {
         _queryInput.value = newText
     }
@@ -96,7 +92,6 @@ class MainViewModel(
         _selectedQuality.value = quality
     }
 
-    // Direct Batch Download Execution
     fun startBatchDownload() {
         val itemsToDownload = _songChips.value
         if (itemsToDownload.isEmpty()) {
@@ -112,7 +107,6 @@ class MainViewModel(
         }
     }
 
-    // Spotify Scraper Actions
     fun onSpotifyUrlChange(newUrl: String) {
         _spotifyUrlInput.value = newUrl
     }
@@ -144,7 +138,7 @@ class MainViewModel(
         val state = _spotifyState.value
         if (state is SpotifyExtractionUiState.Success && state.tracks.isNotEmpty()) {
             _songChips.value = (_songChips.value + state.tracks).distinct()
-            _selectedTab.value = 0 // Transition automatically to the downloader tab
+            _selectedTab.value = 0
             Toast.makeText(
                 getApplication(),
                 "Added ${state.tracks.size} tracks to the queue!",

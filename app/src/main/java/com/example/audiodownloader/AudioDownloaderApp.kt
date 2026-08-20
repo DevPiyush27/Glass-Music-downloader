@@ -1,5 +1,5 @@
 package com.example.audiodownloader
 
-import android.app.Application
+import com.chaquo.python.android.PyApplication
 
-class AudioDownloaderApp : Application()
+class AudioDownloaderApp : PyApplication()
