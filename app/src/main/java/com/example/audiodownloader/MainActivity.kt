@@ -4,9 +4,11 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.os.Environment
+import android.widget.ScrollView
+import android.widget.TextView
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.animation.AnimatedContent
@@ -33,9 +35,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.example.audiodownloader.ui.components.GlassBackground
-import com.example.audiodownloader.ui.screens.DirectDownloadTab
-import com.example.audiodownloader.ui.screens.SpotifyExtractorTab
+import com.example.audiodownloader.ui.tabs.DirectDownloadTab
+import com.example.audiodownloader.ui.tabs.SpotifyExtractorTab
 import com.example.audiodownloader.ui.viewmodel.MainViewModel
+import java.io.File
+import java.io.PrintWriter
+import java.io.StringWriter
 
 class MainActivity : ComponentActivity() {
 
@@ -47,13 +52,37 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
-        checkAndRequestPermissions()
 
-        setContent {
-            AudioDownloaderTheme {
-                MainAppScreen(viewModel = viewModel)
+        try {
+            checkAndRequestPermissions()
+
+            setContent {
+                AudioDownloaderTheme {
+                    MainAppScreen(viewModel = viewModel)
+                }
             }
+        } catch (t: Throwable) {
+            val sw = StringWriter()
+            t.printStackTrace(PrintWriter(sw))
+            val errorText = "Startup Crash Encountered:\n\n$sw"
+
+            try {
+                val downloadDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                File(downloadDir, "app_crash.txt").writeText(errorText)
+            } catch (_: Exception) {}
+
+            // Display native emergency fallback text screen
+            val scrollView = ScrollView(this).apply {
+                setBackgroundColor(0xFF0F172A.toInt())
+                setPadding(32, 64, 32, 32)
+            }
+            val textView = TextView(this).apply {
+                text = errorText
+                setTextColor(0xFFFF6B6B.toInt())
+                textSize = 13f
+            }
+            scrollView.addView(textView)
+            setContentView(scrollView)
         }
     }
 

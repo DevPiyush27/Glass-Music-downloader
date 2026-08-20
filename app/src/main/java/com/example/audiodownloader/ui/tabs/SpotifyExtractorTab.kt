@@ -1,4 +1,4 @@
-package com.example.audiodownloader.ui.screens
+package com.example.audiodownloader.ui.tabs
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn

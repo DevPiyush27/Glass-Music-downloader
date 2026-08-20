@@ -1,4 +1,4 @@
-package com.example.audiodownloader.ui.screens
+package com.example.audiodownloader.ui.tabs
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
