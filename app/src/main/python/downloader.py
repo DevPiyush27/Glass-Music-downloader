@@ -34,15 +34,19 @@ def download_audio(query, output_dir=None, bitrate="128", callback=None):
             except Exception:
                 pass
 
-    # Direct M4A/AAC / WebM / MP3 stream extraction (zero FFmpeg binary requirement)
+    # Normalize plain search terms to standard ytsearch1
+    search_target = query.strip()
+    if not (search_target.startswith("http://") or search_target.startswith("https://")):
+        search_target = f"ytsearch1:{search_target} audio"
+
     ydl_opts = {
-        'default_search': 'ytmsearch',
         'format': 'bestaudio[ext=m4a]/bestaudio/best',
         'outtmpl': out_tmpl,
         'quiet': True,
         'no_warnings': True,
         'nocheckcertificate': True,
         'writethumbnail': False,
+        'noplaylist': True,
         'progress_hooks': [progress_hook]
     }
 
@@ -51,7 +55,7 @@ def download_audio(query, output_dir=None, bitrate="128", callback=None):
             callback.onProgress("queued", 0.0, "0 KB/s", "")
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(query, download=True)
+            info = ydl.extract_info(search_target, download=True)
             if info and 'entries' in info and len(info['entries']) > 0:
                 info = info['entries'][0]
             
