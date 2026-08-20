@@ -1,6 +1,6 @@
 # Glass Music Downloader🎵
 
-TLDR; It's a very impressive app which Downloads any song you wish just by typing it's name. Additionally a very crazy feature it can Download your entire Spotify playlist in one click!
+TLDR; It's a very helpful app which Downloads any song you wish just by typing it's name. Additionally a very **crazy** feature it can Download your entire Spotify playlist in one click!
 
 A native Android music engine with an edge-to-edge glassmorphic design. Built with Jetpack Compose and powered by an embedded Python engine, **Glass** provides seamless audio downloading with zero external setup.
 
