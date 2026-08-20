@@ -101,9 +101,17 @@ class MainViewModel @JvmOverloads constructor(
 
         viewModelScope.launch {
             _isDownloading.value = true
-            downloadManager.downloadQueue(itemsToDownload, _selectedQuality.value)
+            val results = downloadManager.downloadQueue(itemsToDownload, _selectedQuality.value)
             _isDownloading.value = false
-            Toast.makeText(getApplication(), "All downloads finished!", Toast.LENGTH_SHORT).show()
+            
+            val successCount = results.values.count { it }
+            val failCount = results.values.count { !it }
+            
+            if (failCount == 0) {
+                Toast.makeText(getApplication(), "Downloaded $successCount song(s) to Download/Music!", Toast.LENGTH_LONG).show()
+            } else {
+                Toast.makeText(getApplication(), "Finished: $successCount succeeded, $failCount failed.", Toast.LENGTH_LONG).show()
+            }
         }
     }
 

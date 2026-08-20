@@ -1,6 +1,7 @@
 package com.example.audiodownloader.data.downloader
 
 import android.content.Context
+import android.media.MediaScannerConnection
 import android.os.Environment
 import com.chaquo.python.PyObject
 import com.chaquo.python.Python
@@ -38,13 +39,6 @@ class AudioDownloadManager(
         }
     }
 
-    /**
-     * Downloads an audio track or query via Chaquopy / yt-dlp.
-     *
-     * @param query Search query string (e.g., "Song Title Artist Name") or direct URL.
-     * @param quality The target AudioQuality (LOW: 48kbps, NORMAL: 128kbps, HIGH: 256kbps).
-     * @param customOutputDir Optional destination directory, defaults to public Downloads/Music.
-     */
     suspend fun downloadAudio(
         query: String,
         quality: AudioQuality = AudioQuality.NORMAL,
@@ -53,10 +47,22 @@ class AudioDownloadManager(
         try {
             ensurePythonStarted()
 
-            val targetDir = customOutputDir ?: File(
-                Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
-                "Music"
-            ).apply { mkdirs() }.absolutePath
+            // Resolve target directory (Download/Music with fallback to app external Music folder)
+            val targetDir = customOutputDir ?: try {
+                val publicDir = File(
+                    Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
+                    "Music"
+                )
+                if (publicDir.exists() || publicDir.mkdirs()) {
+                    publicDir.absolutePath
+                } else {
+                    context.getExternalFilesDir(Environment.DIRECTORY_MUSIC)?.absolutePath
+                        ?: context.filesDir.absolutePath
+                }
+            } catch (_: Exception) {
+                context.getExternalFilesDir(Environment.DIRECTORY_MUSIC)?.absolutePath
+                    ?: context.filesDir.absolutePath
+            }
 
             _downloadState.value = DownloadState.Queued(songTitle = query)
 
@@ -77,15 +83,20 @@ class AudioDownloadManager(
                                 fileName = filename
                             )
                         }
-                        "converting" -> {
-                            _downloadState.value = DownloadState.Converting(songTitle = query)
-                        }
                         "completed" -> {
                             val savedPath = if (filename.isNotEmpty()) "$targetDir/$filename" else targetDir
                             _downloadState.value = DownloadState.Completed(
                                 songTitle = query,
                                 filePath = savedPath
                             )
+                            try {
+                                MediaScannerConnection.scanFile(
+                                    context.applicationContext,
+                                    arrayOf(savedPath),
+                                    arrayOf("audio/*"),
+                                    null
+                                )
+                            } catch (_: Exception) {}
                         }
                     }
                 }
@@ -98,7 +109,6 @@ class AudioDownloadManager(
                 }
             }
 
-            // Execute Python download function with dynamic bitrate parameter ("48", "128", "256")
             val result: PyObject = downloaderModule.callAttr(
                 "download_audio",
                 query,
@@ -112,23 +122,31 @@ class AudioDownloadManager(
 
             if (isSuccess) {
                 val title = resultMap[py.getBuiltins().callAttr("str", "title")]?.toString() ?: query
+                val finalFile = resultMap[py.getBuiltins().callAttr("str", "filename")]?.toString() ?: ""
+                if (finalFile.isNotEmpty()) {
+                    try {
+                        MediaScannerConnection.scanFile(
+                            context.applicationContext,
+                            arrayOf(finalFile),
+                            arrayOf("audio/*"),
+                            null
+                        )
+                    } catch (_: Exception) {}
+                }
                 Result.success(title)
             } else {
                 val errorMsg = resultMap[py.getBuiltins().callAttr("str", "error")]?.toString()
-                    ?: "Download failed in yt-dlp engine"
+                    ?: "yt-dlp download failed"
                 _downloadState.value = DownloadState.Failed(songTitle = query, errorMessage = errorMsg)
                 Result.failure(Exception(errorMsg))
             }
         } catch (e: Exception) {
-            val err = e.localizedMessage ?: "Audio download encountered an unexpected error"
+            val err = e.localizedMessage ?: "Audio download encountered an error"
             _downloadState.value = DownloadState.Failed(songTitle = query, errorMessage = err)
             Result.failure(e)
         }
     }
 
-    /**
-     * Sequentially downloads a queue of extracted song queries.
-     */
     suspend fun downloadQueue(
         queries: List<String>,
         quality: AudioQuality = AudioQuality.NORMAL
@@ -138,7 +156,6 @@ class AudioDownloadManager(
             val result = downloadAudio(song, quality)
             results[song] = result.isSuccess
         }
-        _downloadState.value = DownloadState.Idle
         results
     }
 

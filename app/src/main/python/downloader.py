@@ -1,15 +1,10 @@
 import os
 import yt_dlp
 
-def download_audio(query, output_dir="/storage/emulated/0/Download", bitrate="128", callback=None):
-    """
-    Downloads audio using yt-dlp targeting YouTube Music with the specified quality.
-    
-    :param query: Song title / artist search string or direct URL.
-    :param output_dir: Public storage destination folder.
-    :param bitrate: Target bitrate string ('48', '128', '256').
-    :param callback: Chaquopy Java/Kotlin callback instance.
-    """
+def download_audio(query, output_dir=None, bitrate="128", callback=None):
+    if not output_dir:
+        output_dir = "/storage/emulated/0/Download/Music"
+        
     os.makedirs(output_dir, exist_ok=True)
     out_tmpl = os.path.join(output_dir, "%(title)s.%(ext)s")
 
@@ -25,55 +20,30 @@ def download_audio(query, output_dir="/storage/emulated/0/Download", bitrate="12
             speed = d.get('speed', 0.0) or 0.0
             filename = d.get('filename', '')
             
-            # Format speed to readable string
             speed_str = f"{speed / 1024 / 1024:.2f} MB/s" if speed > 1024 * 1024 else f"{speed / 1024:.1f} KB/s"
             
             try:
                 callback.onProgress("downloading", float(percent), speed_str, os.path.basename(filename))
-            except Exception as e:
-                print(f"Progress callback error: {e}")
+            except Exception:
+                pass
 
         elif status == 'finished':
             filename = d.get('filename', '')
             try:
-                callback.onProgress("converting", 100.0, "0 KB/s", os.path.basename(filename))
-            except Exception as e:
-                print(f"Finished callback error: {e}")
-
-    def postprocessor_hook(d):
-        if callback is None:
-            return
-        pp_status = d.get('status', '')
-        if pp_status == 'started':
-            try:
-                callback.onProgress("converting", 100.0, "0 KB/s", "")
+                callback.onProgress("completed", 100.0, "0 KB/s", os.path.basename(filename))
             except Exception:
                 pass
 
+    # Direct M4A/AAC / WebM / MP3 stream extraction (zero FFmpeg binary requirement)
     ydl_opts = {
         'default_search': 'ytmsearch',
-        'format': 'bestaudio/best',
+        'format': 'bestaudio[ext=m4a]/bestaudio/best',
         'outtmpl': out_tmpl,
         'quiet': True,
         'no_warnings': True,
         'nocheckcertificate': True,
-        'writethumbnail': True,
-        'postprocessors': [
-            {
-                'key': 'FFmpegExtractAudio',
-                'preferredcodec': 'mp3',
-                'preferredquality': str(bitrate),
-            },
-            {
-                'key': 'FFmpegMetadata',
-                'add_metadata': True,
-            },
-            {
-                'key': 'EmbedThumbnail',
-            }
-        ],
-        'progress_hooks': [progress_hook],
-        'postprocessor_hooks': [postprocessor_hook]
+        'writethumbnail': False,
+        'progress_hooks': [progress_hook]
     }
 
     try:
@@ -82,11 +52,16 @@ def download_audio(query, output_dir="/storage/emulated/0/Download", bitrate="12
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(query, download=True)
+            if info and 'entries' in info and len(info['entries']) > 0:
+                info = info['entries'][0]
+            
             title = info.get('title', query) if info else query
+            filename = ydl.prepare_filename(info) if info else f"{title}.m4a"
 
             if callback:
-                callback.onProgress("completed", 100.0, "0 KB/s", f"{title}.mp3")
-            return {"success": True, "title": title}
+                callback.onProgress("completed", 100.0, "0 KB/s", os.path.basename(filename))
+                
+            return {"success": True, "title": title, "filename": filename}
     except Exception as e:
         error_msg = str(e)
         if callback:
