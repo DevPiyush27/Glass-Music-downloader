@@ -23,15 +23,11 @@ android {
         }
 
         python {
-            python {
-            buildPython "C:/Users/piyus/AppData/Local/Programs/Python/Python310/python.exe"
-            
             version "3.8"
             pip {
                 install "yt-dlp"
                 install "spotipy"
             }
-        }
         }
     }
 
