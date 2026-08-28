@@ -3,7 +3,7 @@ import logging
 import threading
 import uuid
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, Awaitable, Optional, Union
+from typing import TYPE_CHECKING, Awaitable, Literal, Optional, Union
 
 from redis.exceptions import LockError, LockNotOwnedError
 from redis.typing import Number
@@ -263,16 +263,27 @@ class Lock:
             stored_token = encoder.encode(stored_token)
         return self.local.token is not None and stored_token == self.local.token
 
-    def release(self) -> Awaitable[None]:
-        """Releases the already acquired lock"""
+    async def release(self) -> None:
+        """Releases the already acquired lock.
+
+        The token is only cleared after the Redis release operation completes
+        successfully. This ensures that if the release is cancelled mid-operation,
+        the lock state remains consistent and can be retried.
+        """
         expected_token = self.local.token
         if expected_token is None:
             raise LockError(
                 "Cannot release a lock that's not owned or is already unlocked.",
                 lock_name=self.name,
             )
+        try:
+            await self.do_release(expected_token)
+        except LockNotOwnedError:
+            # Lock doesn't exist in Redis, safe to clear token
+            self.local.token = None
+            raise
+        # Only clear token after successful release
         self.local.token = None
-        return self.do_release(expected_token)
 
     async def do_release(self, expected_token: bytes) -> None:
         if not bool(
@@ -284,7 +295,7 @@ class Lock:
 
     def extend(
         self, additional_time: Number, replace_ttl: bool = False
-    ) -> Awaitable[bool]:
+    ) -> Awaitable[Literal[True]]:
         """
         Adds more time to an already acquired lock.
 
@@ -301,7 +312,7 @@ class Lock:
             raise LockError("Cannot extend a lock with no timeout")
         return self.do_extend(additional_time, replace_ttl)
 
-    async def do_extend(self, additional_time, replace_ttl) -> bool:
+    async def do_extend(self, additional_time, replace_ttl) -> Literal[True]:
         additional_time = int(additional_time * 1000)
         if not bool(
             await self.lua_extend(
@@ -313,7 +324,7 @@ class Lock:
             raise LockNotOwnedError("Cannot extend a lock that's no longer owned")
         return True
 
-    def reacquire(self) -> Awaitable[bool]:
+    def reacquire(self) -> Awaitable[Literal[True]]:
         """
         Resets a TTL of an already acquired lock back to a timeout value.
         """
@@ -323,7 +334,7 @@ class Lock:
             raise LockError("Cannot reacquire a lock with no timeout")
         return self.do_reacquire()
 
-    async def do_reacquire(self) -> bool:
+    async def do_reacquire(self) -> Literal[True]:
         timeout = int(self.timeout * 1000)
         if not bool(
             await self.lua_reacquire(

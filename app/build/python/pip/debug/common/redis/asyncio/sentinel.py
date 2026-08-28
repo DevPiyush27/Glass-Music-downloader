@@ -11,8 +11,12 @@ from redis.asyncio.connection import (
     SSLConnection,
 )
 from redis.commands import AsyncSentinelCommands
-from redis.exceptions import ConnectionError, ReadOnlyError, ResponseError, TimeoutError
-from redis.utils import str_if_bytes
+from redis.exceptions import (
+    ConnectionError,
+    ReadOnlyError,
+    ResponseError,
+    TimeoutError,
+)
 
 
 class MasterNotFoundError(ConnectionError):
@@ -21,6 +25,9 @@ class MasterNotFoundError(ConnectionError):
 
 class SlaveNotFoundError(ConnectionError):
     pass
+
+
+ReplicaNotFoundError = SlaveNotFoundError
 
 
 class SentinelManagedConnection(Connection):
@@ -37,11 +44,10 @@ class SentinelManagedConnection(Connection):
 
     async def connect_to(self, address):
         self.host, self.port = address
-        await super().connect()
-        if self.connection_pool.check_connection:
-            await self.send_command("PING")
-            if str_if_bytes(await self.read_response()) != "PONG":
-                raise ConnectionError("PING failed")
+        await self.connect_check_health(
+            check_health=self.connection_pool.check_connection,
+            retry_socket_connect=False,
+        )
 
     async def _connect_retry(self):
         if self._reader:
@@ -163,6 +169,14 @@ class SentinelConnectionPool(ConnectionPool):
             pass
         raise SlaveNotFoundError(f"No slave found for {self.service_name!r}")
 
+    def rotate_replicas(self) -> AsyncIterator:
+        """Round-robin replica balancer.
+
+        This is an alias for :py:meth:`rotate_slaves`,
+        using the preferred Redis 5.0+ terminology.
+        """
+        return self.rotate_slaves()
+
 
 class Sentinel(AsyncSentinelCommands):
     """
@@ -223,19 +237,31 @@ class Sentinel(AsyncSentinelCommands):
         once - If set to True, then execute the resulting command on a single
                node at random, rather than across the entire sentinel cluster.
         """
-        once = bool(kwargs.get("once", False))
-        if "once" in kwargs.keys():
-            kwargs.pop("once")
+        once = bool(kwargs.pop("once", False))
+
+        # Check if command is supposed to return the original
+        # responses instead of boolean value.
+        return_responses = bool(kwargs.pop("return_responses", False))
 
         if once:
-            await random.choice(self.sentinels).execute_command(*args, **kwargs)
-        else:
-            tasks = [
-                asyncio.Task(sentinel.execute_command(*args, **kwargs))
-                for sentinel in self.sentinels
-            ]
-            await asyncio.gather(*tasks)
-        return True
+            response = await random.choice(self.sentinels).execute_command(
+                *args, **kwargs
+            )
+            if return_responses:
+                return [response]
+            else:
+                return True if response else False
+
+        tasks = [
+            asyncio.Task(sentinel.execute_command(*args, **kwargs))
+            for sentinel in self.sentinels
+        ]
+        responses = await asyncio.gather(*tasks)
+
+        if return_responses:
+            return responses
+
+        return all(responses)
 
     def __repr__(self):
         sentinel_addresses = []
@@ -248,6 +274,31 @@ class Sentinel(AsyncSentinelCommands):
             f"<{self.__class__}.{self.__class__.__name__}"
             f"(sentinels=[{','.join(sentinel_addresses)}])>"
         )
+
+    async def aclose(self) -> None:
+        """
+        Close all sentinel clients created by this Sentinel and their
+        connection pools.
+
+        Each client is closed independently: if one raises, the remaining
+        clients are still closed and the first error is re-raised afterwards.
+
+        Clients returned by ``master_for``/``slave_for`` are owned by the
+        caller and are not closed here.
+        """
+        resp = await asyncio.gather(
+            *(sentinel.aclose() for sentinel in self.sentinels),
+            return_exceptions=True,
+        )
+        exc = next((r for r in resp if isinstance(r, BaseException)), None)
+        if exc:
+            raise exc
+
+    async def __aenter__(self) -> "Sentinel":
+        return self
+
+    async def __aexit__(self, exc_type, exc_value, traceback) -> None:
+        await self.aclose()
 
     def check_master_state(self, state: dict, service_name: str) -> bool:
         if not state["is_master"] or state["is_sdown"] or state["is_odown"]:
@@ -303,6 +354,16 @@ class Sentinel(AsyncSentinelCommands):
             slaves_alive.append((slave["ip"], slave["port"]))
         return slaves_alive
 
+    def filter_replicas(
+        self, replicas: Iterable[Mapping]
+    ) -> Sequence[Tuple[EncodableT, EncodableT]]:
+        """Remove replicas that are in an ODOWN or SDOWN state.
+
+        This is an alias for :py:meth:`filter_slaves`,
+        using the preferred Redis 5.0+ terminology.
+        """
+        return self.filter_slaves(replicas)
+
     async def discover_slaves(
         self, service_name: str
     ) -> Sequence[Tuple[EncodableT, EncodableT]]:
@@ -316,6 +377,16 @@ class Sentinel(AsyncSentinelCommands):
             if slaves:
                 return slaves
         return []
+
+    async def discover_replicas(
+        self, service_name: str
+    ) -> Sequence[Tuple[EncodableT, EncodableT]]:
+        """Returns a list of alive replicas for service ``service_name``.
+
+        This is an alias for :py:meth:`discover_slaves`,
+        using the preferred Redis 5.0+ terminology.
+        """
+        return await self.discover_slaves(service_name)
 
     def master_for(
         self,
@@ -347,6 +418,18 @@ class Sentinel(AsyncSentinelCommands):
         All other keyword arguments are merged with any connection_kwargs
         passed to this class and passed to the connection pool as keyword
         arguments to be used to initialize Redis connections.
+
+        HIMPORT note: the returned client exposes the HIMPORT command family
+        (``himport_prepare``, ``himport_set``, ``himport_discard``,
+        ``himport_discard_all``). Fieldsets are declared at runtime with
+        ``himport_prepare`` on the client and live on that client's shared registry,
+        so they survive Sentinel failover automatically: the pool re-points to the
+        new master and the fieldset is re-prepared lazily on the next
+        ``himport_set``. Each call to current command returns a *new* client with its *own* empty
+        registry, so call ``himport_prepare`` on the long-lived client you reuse
+        rather than creating a fresh one per operation; otherwise ``himport_set``
+        fails with ``no such fieldset``. (``himport_set`` is a write and is served by
+        the master.)
         """
         kwargs["is_master"] = True
         connection_kwargs = dict(self.connection_kwargs)
@@ -379,6 +462,18 @@ class Sentinel(AsyncSentinelCommands):
         All other keyword arguments are merged with any connection_kwargs
         passed to this class and passed to the connection pool as keyword
         arguments to be used to initialize Redis connections.
+
+        HIMPORT note: the returned client exposes the HIMPORT command family
+        (``himport_prepare``, ``himport_set``, ``himport_discard``,
+        ``himport_discard_all``). Fieldsets are declared at runtime with
+        ``himport_prepare`` on the client and live on that client's shared registry,
+        so they survive Sentinel failover automatically: the pool re-points to the
+        new master and the fieldset is re-prepared lazily on the next
+        ``himport_set``. Each call to current command returns a *new* client with its *own* empty
+        registry, so call ``himport_prepare`` on the long-lived client you reuse
+        rather than creating a fresh one per operation; otherwise ``himport_set``
+        fails with ``no such fieldset``. (``himport_set`` is a write and is served by
+        the master.)
         """
         kwargs["is_master"] = False
         connection_kwargs = dict(self.connection_kwargs)
@@ -387,3 +482,23 @@ class Sentinel(AsyncSentinelCommands):
         connection_pool = connection_pool_class(service_name, self, **connection_kwargs)
         # The Redis object "owns" the pool
         return redis_class.from_pool(connection_pool)
+
+    def replica_for(
+        self,
+        service_name: str,
+        redis_class: Type[Redis] = Redis,
+        connection_pool_class: Type[SentinelConnectionPool] = SentinelConnectionPool,
+        **kwargs,
+    ):
+        """
+        Returns redis client instance for the ``service_name`` replica(s).
+
+        This is an alias for :py:meth:`slave_for`,
+        using the preferred Redis 5.0+ terminology.
+        """
+        return self.slave_for(
+            service_name,
+            redis_class=redis_class,
+            connection_pool_class=connection_pool_class,
+            **kwargs,
+        )

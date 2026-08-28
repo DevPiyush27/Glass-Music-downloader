@@ -2,10 +2,15 @@ import asyncio
 import threading
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import List, Optional, Union
+from typing import Dict, List, Optional, Type, Union
 
 from redis.auth.token import TokenInterface
 from redis.credentials import CredentialProvider, StreamingCredentialProvider
+from redis.observability.recorder import (
+    init_connection_count,
+    register_pools_connection_count,
+)
+from redis.utils import check_protocol_version, deprecated_function
 
 
 class EventListenerInterface(ABC):
@@ -42,6 +47,28 @@ class EventDispatcherInterface(ABC):
     async def dispatch_async(self, event: object):
         pass
 
+    @abstractmethod
+    def register_listeners(
+        self,
+        mappings: Dict[
+            Type[object],
+            List[Union[EventListenerInterface, AsyncEventListenerInterface]],
+        ],
+    ):
+        """Register additional listeners."""
+        pass
+
+    @abstractmethod
+    def unregister_listeners(
+        self,
+        mappings: Dict[
+            Type[object],
+            List[Union[EventListenerInterface, AsyncEventListenerInterface]],
+        ],
+    ):
+        """Remove previously registered listeners by identity."""
+        pass
+
 
 class EventException(Exception):
     """
@@ -56,16 +83,23 @@ class EventException(Exception):
 
 class EventDispatcher(EventDispatcherInterface):
     # TODO: Make dispatcher to accept external mappings.
-    def __init__(self):
+    def __init__(
+        self,
+        event_listeners: Optional[
+            Dict[Type[object], List[EventListenerInterface]]
+        ] = None,
+    ):
         """
-        Mapping should be extended for any new events or listeners to be added.
+        Dispatcher that dispatches events to listeners associated with given event.
         """
-        self._event_listeners_mapping = {
+        self._event_listeners_mapping: Dict[
+            Type[object], List[EventListenerInterface]
+        ] = {
             AfterConnectionReleasedEvent: [
                 ReAuthConnectionListener(),
             ],
             AfterPooledConnectionsInstantiationEvent: [
-                RegisterReAuthForPooledConnections()
+                RegisterReAuthForPooledConnections(),
             ],
             AfterSingleConnectionInstantiationEvent: [
                 RegisterReAuthForSingleConnection()
@@ -77,17 +111,76 @@ class EventDispatcher(EventDispatcherInterface):
             ],
         }
 
-    def dispatch(self, event: object):
-        listeners = self._event_listeners_mapping.get(type(event))
+        # Reentrant so a finalizer/listener that runs on the same thread
+        # while the lock is held (e.g. a weakref.finalize callback fired
+        # from cyclic GC during an allocation inside register_listeners /
+        # unregister_listeners) can re-enter without deadlocking.
+        self._lock = threading.RLock()
+        self._async_lock = None
 
+        if event_listeners:
+            self.register_listeners(event_listeners)
+
+    def dispatch(self, event: object):
+        # Snapshot listeners under the lock, then release it before invoking
+        # them. Holding the lock across listener execution would turn any
+        # listener that calls register_listeners / unregister_listeners /
+        # dispatch back into the dispatcher into a deadlock.
+        with self._lock:
+            listeners = list(self._event_listeners_mapping.get(type(event), []))
         for listener in listeners:
             listener.listen(event)
 
     async def dispatch_async(self, event: object):
-        listeners = self._event_listeners_mapping.get(type(event))
+        if self._async_lock is None:
+            self._async_lock = asyncio.Lock()
 
+        # Snapshot listeners under the lock, then release it before awaiting
+        # them. See the note in dispatch(); the same rationale applies here
+        # for dispatch_async re-entry from within a listener.
+        async with self._async_lock:
+            listeners = list(self._event_listeners_mapping.get(type(event), []))
         for listener in listeners:
             await listener.listen(event)
+
+    def register_listeners(
+        self,
+        mappings: Dict[
+            Type[object],
+            List[Union[EventListenerInterface, AsyncEventListenerInterface]],
+        ],
+    ):
+        with self._lock:
+            for event_type in mappings:
+                if event_type in self._event_listeners_mapping:
+                    self._event_listeners_mapping[event_type] = list(
+                        set(
+                            self._event_listeners_mapping[event_type]
+                            + mappings[event_type]
+                        )
+                    )
+                else:
+                    self._event_listeners_mapping[event_type] = mappings[event_type]
+
+    def unregister_listeners(
+        self,
+        mappings: Dict[
+            Type[object],
+            List[Union[EventListenerInterface, AsyncEventListenerInterface]],
+        ],
+    ):
+        with self._lock:
+            for event_type, to_remove in mappings.items():
+                current = self._event_listeners_mapping.get(event_type)
+                if not current:
+                    continue
+                # Remove by identity to match register semantics and to avoid
+                # reliance on listener __eq__ implementations.
+                self._event_listeners_mapping[event_type] = [
+                    listener
+                    for listener in current
+                    if all(listener is not target for target in to_remove)
+                ]
 
 
 class AfterConnectionReleasedEvent:
@@ -104,6 +197,21 @@ class AfterConnectionReleasedEvent:
 
 
 class AsyncAfterConnectionReleasedEvent(AfterConnectionReleasedEvent):
+    pass
+
+
+class AfterSlotsCacheRefreshEvent:
+    """
+    Event fired after NodesManager's slots cache is refreshed, either via a
+    full re-initialization or a MOVED-driven slot re-mapping. Signal-only;
+    carries no payload. Listeners typically reconcile per-node bookkeeping
+    (e.g. ClusterPubSub shard subscriptions).
+    """
+
+    pass
+
+
+class AsyncAfterSlotsCacheRefreshEvent(AfterSlotsCacheRefreshEvent):
     pass
 
 
@@ -152,7 +260,7 @@ class AfterSingleConnectionInstantiationEvent:
         self,
         connection,
         client_type: ClientType,
-        connection_lock: Union[threading.Lock, asyncio.Lock],
+        connection_lock: Union[threading.RLock, asyncio.Lock],
     ):
         self._connection = connection
         self._client_type = client_type
@@ -167,7 +275,7 @@ class AfterSingleConnectionInstantiationEvent:
         return self._client_type
 
     @property
-    def connection_lock(self) -> Union[threading.Lock, asyncio.Lock]:
+    def connection_lock(self) -> Union[threading.RLock, asyncio.Lock]:
         return self._connection_lock
 
 
@@ -177,7 +285,7 @@ class AfterPubSubConnectionInstantiationEvent:
         pubsub_connection,
         connection_pool,
         client_type: ClientType,
-        connection_lock: Union[threading.Lock, asyncio.Lock],
+        connection_lock: Union[threading.RLock, asyncio.Lock],
     ):
         self._pubsub_connection = pubsub_connection
         self._connection_pool = connection_pool
@@ -197,7 +305,7 @@ class AfterPubSubConnectionInstantiationEvent:
         return self._client_type
 
     @property
-    def connection_lock(self) -> Union[threading.Lock, asyncio.Lock]:
+    def connection_lock(self) -> Union[threading.RLock, asyncio.Lock]:
         return self._connection_lock
 
 
@@ -224,6 +332,32 @@ class AfterAsyncClusterInstantiationEvent:
     @property
     def credential_provider(self) -> Union[CredentialProvider, None]:
         return self._credential_provider
+
+
+class OnCommandsFailEvent:
+    """
+    Event fired whenever a command fails during the execution.
+    """
+
+    def __init__(
+        self,
+        commands: tuple,
+        exception: Exception,
+    ):
+        self._commands = commands
+        self._exception = exception
+
+    @property
+    def commands(self) -> tuple:
+        return self._commands
+
+    @property
+    def exception(self) -> Exception:
+        return self._exception
+
+
+class AsyncOnCommandsFailEvent(OnCommandsFailEvent):
+    pass
 
 
 class ReAuthConnectionListener(EventListenerInterface):
@@ -353,7 +487,7 @@ class RegisterReAuthForPubSub(EventListenerInterface):
     def listen(self, event: AfterPubSubConnectionInstantiationEvent):
         if isinstance(
             event.pubsub_connection.credential_provider, StreamingCredentialProvider
-        ) and event.pubsub_connection.get_protocol() in [3, "3"]:
+        ) and check_protocol_version(event.pubsub_connection.get_protocol(), 3):
             self._event = event
             self._connection = event.pubsub_connection
             self._connection_pool = event.connection_pool
@@ -392,3 +526,23 @@ class RegisterReAuthForPubSub(EventListenerInterface):
 
     async def _raise_on_error_async(self, error: Exception):
         raise EventException(error, self._event)
+
+
+class InitializeConnectionCountObservability(EventListenerInterface):
+    """
+    Listener that initializes connection count observability.
+    """
+
+    @deprecated_function(
+        reason="Connection count is now tracked via record_connection_count(). "
+        "This functionality will be removed in the next major version",
+        version="7.4.0",
+    )
+    def listen(self, event: AfterPooledConnectionsInstantiationEvent):
+        # Initialize gauge only once, subsequent calls won't have an affect.
+        # Note: init_connection_count() and register_pools_connection_count()
+        # are deprecated and will emit their own warnings.
+        init_connection_count()
+
+        # Register pools for connection count observability.
+        register_pools_connection_count(event.connection_pools)

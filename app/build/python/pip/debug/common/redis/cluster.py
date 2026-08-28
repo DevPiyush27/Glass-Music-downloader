@@ -1,22 +1,46 @@
+import logging
 import random
 import socket
 import sys
 import threading
 import time
+import weakref
 from abc import ABC, abstractmethod
-from collections import OrderedDict
+from collections import OrderedDict, defaultdict
+from concurrent.futures import Future, ThreadPoolExecutor
 from copy import copy
 from enum import Enum
 from itertools import chain
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
+from types import MethodType
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    Dict,
+    Iterable,
+    List,
+    Literal,
+    Optional,
+    Set,
+    Tuple,
+    Type,
+    Union,
+)
 
+if TYPE_CHECKING:
+    from redis.keyspace_notifications import ClusterKeyspaceNotifications
+
+from redis import _himport_exec
+from redis._defaults import DEFAULT_RETRY_BASE, DEFAULT_RETRY_CAP, DEFAULT_RETRY_COUNT
 from redis._parsers import CommandsParser, Encoder
+from redis._parsers.commands import CommandPolicies, RequestPolicy, ResponsePolicy
 from redis._parsers.helpers import parse_scan
 from redis.backoff import ExponentialWithJitterBackoff, NoBackoff
 from redis.cache import CacheConfig, CacheFactory, CacheFactoryInterface, CacheInterface
 from redis.client import EMPTY_RESPONSE, CaseInsensitiveDict, PubSub, Redis
 from redis.commands import READ_COMMANDS, RedisClusterCommands
-from redis.commands.helpers import list_or_args
+from redis.commands.helpers import list_or_args, parse_pubsub_subscriptions
+from redis.commands.policies import PolicyResolver, StaticPolicyResolver
 from redis.connection import (
     Connection,
     ConnectionPool,
@@ -26,8 +50,10 @@ from redis.crc import REDIS_CLUSTER_HASH_SLOTS, key_slot
 from redis.event import (
     AfterPooledConnectionsInstantiationEvent,
     AfterPubSubConnectionInstantiationEvent,
+    AfterSlotsCacheRefreshEvent,
     ClientType,
     EventDispatcher,
+    EventListenerInterface,
 )
 from redis.exceptions import (
     AskError,
@@ -39,6 +65,7 @@ from redis.exceptions import (
     DataError,
     ExecAbortError,
     InvalidPipelineStack,
+    MaxConnectionsError,
     MovedError,
     RedisClusterException,
     RedisError,
@@ -48,18 +75,41 @@ from redis.exceptions import (
     TryAgainError,
     WatchError,
 )
+from redis.himport import HImportRegistry, parse_himport_set_args
 from redis.lock import Lock
+from redis.maint_notifications import (
+    MaintNotificationsConfig,
+    OSSMaintNotificationsHandler,
+)
+from redis.observability.recorder import (
+    record_error_count,
+    record_operation_duration,
+)
 from redis.retry import Retry
+from redis.typing import (
+    ChannelT,
+    FieldT,
+    PubSubHandler,
+    Subscription,
+)
 from redis.utils import (
-    HIREDIS_AVAILABLE,
+    check_protocol_version,
     deprecated_args,
+    deprecated_function,
     dict_merge,
+    experimental_method,
     list_keys_to_dict,
     merge_result,
     safe_str,
     str_if_bytes,
     truncate_text,
 )
+
+logger = logging.getLogger(__name__)
+
+
+def is_debug_log_enabled():
+    return logger.isEnabledFor(logging.DEBUG)
 
 
 def get_node_name(host: str, port: Union[str, int]) -> str:
@@ -141,6 +191,75 @@ def parse_cluster_shards(resp, **options):
     return shards
 
 
+def parse_cluster_shards_with_str_keys(resp, **options):
+    """
+    Parse CLUSTER SHARDS with string top-level structural keys.
+
+    RESP2 parsing exposes top-level shard keys as ``"slots"``/``"nodes"``
+    while node attribute keys keep the connection's decoded/raw form. RESP3 can
+    return top-level shard dictionaries directly, so normalize only the
+    structural shard keys and preserve nested node dictionaries as delivered.
+    """
+    if not resp:
+        return resp
+    if not isinstance(resp[0], dict):
+        return parse_cluster_shards(resp, **options)
+
+    shards = []
+    for shard_resp in resp:
+        slots = shard_resp.get(b"slots", shard_resp.get("slots", []))
+        nodes = shard_resp.get(b"nodes", shard_resp.get("nodes", []))
+        shard = {
+            "slots": [
+                tuple(slot) if isinstance(slot, list) else slot for slot in slots
+            ],
+            "nodes": [dict(node) if isinstance(node, dict) else node for node in nodes],
+        }
+        shards.append(shard)
+    return shards
+
+
+def parse_cluster_shards_unified(resp, **options):
+    """
+    Parse CLUSTER SHARDS into the approved unified shape.
+
+    Top-level shard keys and nested node attribute keys are strings for both
+    RESP2 and RESP3 wire responses.
+    """
+    if not resp:
+        return resp
+    if isinstance(resp[0], dict):
+        shards = []
+        for shard_resp in resp:
+            slots = shard_resp.get(b"slots", shard_resp.get("slots", []))
+            nodes = shard_resp.get(b"nodes", shard_resp.get("nodes", []))
+            shard = {
+                "slots": slots,
+                "nodes": [
+                    {str_if_bytes(k): v for k, v in node.items()}
+                    if isinstance(node, dict)
+                    else node
+                    for node in nodes
+                ],
+            }
+            shards.append(shard)
+        return shards
+
+    shards = []
+    for x in resp:
+        shard = {"slots": [], "nodes": []}
+        for i in range(0, len(x[1]), 2):
+            shard["slots"].append((x[1][i], x[1][i + 1]))
+        nodes = x[3]
+        for node in nodes:
+            dict_node = {}
+            for i in range(0, len(node), 2):
+                dict_node[str_if_bytes(node[i])] = node[i + 1]
+            shard["nodes"].append(dict_node)
+        shards.append(shard)
+    return shards
+
+
 def parse_cluster_myshardid(resp, **options):
     """
     Parse CLUSTER MYSHARDID response.
@@ -163,6 +282,7 @@ REDIS_ALLOWED_KEYS = (
     "encoding",
     "encoding_errors",
     "host",
+    "driver_info",
     "lib_name",
     "lib_version",
     "max_connections",
@@ -170,19 +290,25 @@ REDIS_ALLOWED_KEYS = (
     "redis_connect_func",
     "password",
     "port",
+    "timeout",
     "queue_class",
     "retry",
     "retry_on_timeout",
     "protocol",
+    "legacy_responses",
     "socket_connect_timeout",
     "socket_keepalive",
     "socket_keepalive_options",
+    "socket_read_size",
     "socket_timeout",
     "ssl",
     "ssl_ca_certs",
     "ssl_ca_data",
+    "ssl_ca_path",
     "ssl_certfile",
     "ssl_cert_reqs",
+    "ssl_include_verify_flags",
+    "ssl_exclude_verify_flags",
     "ssl_keyfile",
     "ssl_password",
     "ssl_check_hostname",
@@ -190,6 +316,7 @@ REDIS_ALLOWED_KEYS = (
     "username",
     "cache",
     "cache_config",
+    "maint_notifications_config",
 )
 KWARGS_DISABLED_KEYS = ("host", "port", "retry")
 
@@ -205,6 +332,64 @@ def cleanup_kwargs(**kwargs):
     }
 
     return connection_kwargs
+
+
+class MaintNotificationsAbstractRedisCluster:
+    """
+    Abstract class for handling maintenance notifications logic.
+    This class is expected to be used as base class together with RedisCluster.
+
+    This class is intended to be used with multiple inheritance!
+
+    All logic related to maintenance notifications is encapsulated in this class.
+    """
+
+    def __init__(
+        self,
+        maint_notifications_config: Optional[MaintNotificationsConfig],
+        **kwargs,
+    ):
+        # Initialize maintenance notifications.
+        # The RESP3 requirement is validated in RedisCluster.__init__ before the
+        # NodesManager is constructed; this mixin is only ever run from there, so
+        # the config it receives has already been validated.
+        is_protocol_supported = check_protocol_version(kwargs.get("protocol"), 3)
+
+        if maint_notifications_config is None and is_protocol_supported:
+            maint_notifications_config = MaintNotificationsConfig()
+
+        self.maint_notifications_config = maint_notifications_config
+
+        if self.maint_notifications_config and self.maint_notifications_config.enabled:
+            self._oss_cluster_maint_notifications_handler = (
+                OSSMaintNotificationsHandler(self, self.maint_notifications_config)
+            )
+            # Update connection kwargs for all future nodes connections
+            self._update_connection_kwargs_for_maint_notifications(
+                self._oss_cluster_maint_notifications_handler
+            )
+            # Update existing nodes connections - they are created as part of the RedisCluster constructor
+            for node in self.get_nodes():
+                if node.redis_connection is None:
+                    continue
+                node.redis_connection.connection_pool.update_maint_notifications_config(
+                    self.maint_notifications_config,
+                    oss_cluster_maint_notifications_handler=self._oss_cluster_maint_notifications_handler,
+                )
+        else:
+            self._oss_cluster_maint_notifications_handler = None
+
+    def _update_connection_kwargs_for_maint_notifications(
+        self, oss_cluster_maint_notifications_handler: OSSMaintNotificationsHandler
+    ):
+        """
+        Update the connection kwargs for all future connections.
+        """
+        self.nodes_manager.connection_kwargs.update(
+            {
+                "oss_cluster_maint_notifications_handler": oss_cluster_maint_notifications_handler,
+            }
+        )
 
 
 class AbstractRedisCluster:
@@ -352,6 +537,7 @@ class AbstractRedisCluster:
             "FT.ALIASADD",
             "FT.ALIASUPDATE",
             "FT.ALIASDEL",
+            "FT.ALIASLIST",
             "FT.TAGVALS",
             "FT.SUGADD",
             "FT.SUGGET",
@@ -454,9 +640,14 @@ class AbstractRedisCluster:
                     self.nodes_manager.default_node = random.choice(replicas)
 
 
-class RedisCluster(AbstractRedisCluster, RedisClusterCommands):
+class RedisCluster(
+    AbstractRedisCluster, MaintNotificationsAbstractRedisCluster, RedisClusterCommands
+):
+    # Type discrimination marker for @overload self-type pattern
+    _is_async_client: Literal[False] = False
+
     @classmethod
-    def from_url(cls, url, **kwargs):
+    def from_url(cls, url: str, **kwargs: Any) -> "RedisCluster":
         """
         Return a Redis client object configured from the given URL
 
@@ -516,7 +707,7 @@ class RedisCluster(AbstractRedisCluster, RedisClusterCommands):
         host: Optional[str] = None,
         port: int = 6379,
         startup_nodes: Optional[List["ClusterNode"]] = None,
-        cluster_error_retry_attempts: int = 3,
+        cluster_error_retry_attempts: int = DEFAULT_RETRY_COUNT,
         retry: Optional["Retry"] = None,
         require_full_coverage: bool = True,
         reinitialize_steps: int = 5,
@@ -528,18 +719,20 @@ class RedisCluster(AbstractRedisCluster, RedisClusterCommands):
         cache: Optional[CacheInterface] = None,
         cache_config: Optional[CacheConfig] = None,
         event_dispatcher: Optional[EventDispatcher] = None,
+        policy_resolver: PolicyResolver = StaticPolicyResolver(),
+        maint_notifications_config: Optional[MaintNotificationsConfig] = None,
         **kwargs,
     ):
         """
-         Initialize a new RedisCluster client.
+        Initialize a new RedisCluster client.
 
-         :param startup_nodes:
-             List of nodes from which initial bootstrapping can be done
-         :param host:
-             Can be used to point to a startup node
-         :param port:
-             Can be used to point to a startup node
-         :param require_full_coverage:
+        :param startup_nodes:
+            List of nodes from which initial bootstrapping can be done
+        :param host:
+            Can be used to point to a startup node
+        :param port:
+            Can be used to point to a startup node
+        :param require_full_coverage:
             When set to False (default value): the client will not require a
             full coverage of the slots. However, if not all slots are covered,
             and at least one node has 'cluster-require-full-coverage' set to
@@ -550,30 +743,30 @@ class RedisCluster(AbstractRedisCluster, RedisClusterCommands):
             cluster client. If not all slots are covered, RedisClusterException
             will be thrown.
         :param read_from_replicas:
-             @deprecated - please use load_balancing_strategy instead
-             Enable read from replicas in READONLY mode. You can read possibly
-             stale data.
-             When set to true, read commands will be assigned between the
-             primary and its replications in a Round-Robin manner.
+            @deprecated - please use load_balancing_strategy instead
+            Enable read from replicas in READONLY mode. You can read possibly
+            stale data.
+            When set to true, read commands will be assigned between the
+            primary and its replications in a Round-Robin manner.
         :param load_balancing_strategy:
-             Enable read from replicas in READONLY mode and defines the load balancing
-             strategy that will be used for cluster node selection.
-             The data read from replicas is eventually consistent with the data in primary nodes.
+            Enable read from replicas in READONLY mode and defines the load balancing
+            strategy that will be used for cluster node selection.
+            The data read from replicas is eventually consistent with the data in primary nodes.
         :param dynamic_startup_nodes:
-             Set the RedisCluster's startup nodes to all of the discovered nodes.
-             If true (default value), the cluster's discovered nodes will be used to
-             determine the cluster nodes-slots mapping in the next topology refresh.
-             It will remove the initial passed startup nodes if their endpoints aren't
-             listed in the CLUSTER SLOTS output.
-             If you use dynamic DNS endpoints for startup nodes but CLUSTER SLOTS lists
-             specific IP addresses, it is best to set it to false.
+            Set the RedisCluster's startup nodes to all of the discovered nodes.
+            If true (default value), the cluster's discovered nodes will be used to
+            determine the cluster nodes-slots mapping in the next topology refresh.
+            It will remove the initial passed startup nodes if their endpoints aren't
+            listed in the CLUSTER SLOTS output.
+            If you use dynamic DNS endpoints for startup nodes but CLUSTER SLOTS lists
+            specific IP addresses, it is best to set it to false.
         :param cluster_error_retry_attempts:
-             @deprecated - Please configure the 'retry' object instead
-             In case 'retry' object is set - this argument is ignored!
+            @deprecated - Please configure the 'retry' object instead
+            In case 'retry' object is set - this argument is ignored!
 
-             Number of times to retry before raising an error when
-             :class:`~.TimeoutError` or :class:`~.ConnectionError`, :class:`~.SlotNotCoveredError` or
-             :class:`~.ClusterDownError` are encountered
+            Number of times to retry before raising an error when
+            :class:`~.TimeoutError` or :class:`~.ConnectionError`, :class:`~.SlotNotCoveredError` or
+            :class:`~.ClusterDownError` are encountered
         :param retry:
             A retry object that defines the retry strategy and the number of
             retries for the cluster client.
@@ -598,14 +791,22 @@ class RedisCluster(AbstractRedisCluster, RedisClusterCommands):
             which the nodes _think_ they are, to addresses at which a client may
             reach them, such as when they sit behind a proxy.
 
-         :**kwargs:
-             Extra arguments that will be sent into Redis instance when created
-             (See Official redis-py doc for supported kwargs - the only limitation
-              is that you can't provide 'retry' object as part of kwargs.
-         [https://github.com/andymccurdy/redis-py/blob/master/redis/client.py])
-             Some kwargs are not supported and will raise a
-             RedisClusterException:
-                 - db (Redis do not support database SELECT in cluster mode)
+        :param maint_notifications_config:
+            Configures the nodes connections to support maintenance notifications - see
+            `redis.maint_notifications.MaintNotificationsConfig` for details.
+            Only supported with RESP3.
+            If not provided and protocol is RESP3, the maintenance notifications
+            will be enabled by default (logic is included in the NodesManager
+            initialization).
+        :**kwargs:
+            Extra arguments that will be sent into Redis instance when created
+            (See Official redis-py doc for supported kwargs - the only limitation
+            is that you can't provide 'retry' object as part of kwargs.
+            [https://github.com/andymccurdy/redis-py/blob/master/redis/client.py])
+            Some kwargs are not supported and will raise a
+            RedisClusterException:
+                - db (Redis do not support database SELECT in cluster mode)
+
         """
         if startup_nodes is None:
             startup_nodes = []
@@ -669,7 +870,9 @@ class RedisCluster(AbstractRedisCluster, RedisClusterCommands):
             self.retry = retry
         else:
             self.retry = Retry(
-                backoff=ExponentialWithJitterBackoff(base=1, cap=10),
+                backoff=ExponentialWithJitterBackoff(
+                    base=DEFAULT_RETRY_BASE, cap=DEFAULT_RETRY_CAP
+                ),
                 retries=cluster_error_retry_attempts,
             )
 
@@ -679,8 +882,27 @@ class RedisCluster(AbstractRedisCluster, RedisClusterCommands):
             kwargs.get("decode_responses", False),
         )
         protocol = kwargs.get("protocol", None)
-        if (cache_config or cache) and protocol not in [3, "3"]:
+        if (cache_config or cache) and not check_protocol_version(protocol, 3):
             raise RedisError("Client caching is only supported with RESP version 3")
+
+        if (
+            maint_notifications_config
+            and maint_notifications_config.enabled
+            and not check_protocol_version(protocol, 3)
+        ):
+            raise RedisError(
+                "Maintenance notifications are only supported with RESP version 3"
+            )
+        if check_protocol_version(protocol, 3) and maint_notifications_config is None:
+            maint_notifications_config = MaintNotificationsConfig()
+
+        # Build the client-level HIMPORT registry once (always empty at construction)
+        # and share the same object with every node pool, so the fieldset registry is
+        # shared cluster-wide and runtime himport_prepare mutates one object. It is
+        # handed to the NodesManager and injected onto each node's pool in
+        # create_redis_node; it is deliberately NOT forwarded through connection_kwargs,
+        # so nodes reuse the one shared object rather than each rebuilding their own.
+        self._himport_registry = HImportRegistry()
 
         self.command_flags = self.__class__.COMMAND_FLAGS.copy()
         self.node_flags = self.__class__.NODE_FLAGS.copy()
@@ -692,6 +914,8 @@ class RedisCluster(AbstractRedisCluster, RedisClusterCommands):
             self._event_dispatcher = EventDispatcher()
         else:
             self._event_dispatcher = event_dispatcher
+        self.startup_nodes = startup_nodes
+
         self.nodes_manager = NodesManager(
             startup_nodes=startup_nodes,
             from_url=from_url,
@@ -701,16 +925,66 @@ class RedisCluster(AbstractRedisCluster, RedisClusterCommands):
             cache=cache,
             cache_config=cache_config,
             event_dispatcher=self._event_dispatcher,
+            maint_notifications_config=maint_notifications_config,
+            himport_registry=self._himport_registry,
             **kwargs,
         )
 
-        self.cluster_response_callbacks = CaseInsensitiveDict(
+        cluster_response_callbacks = dict(
             self.__class__.CLUSTER_COMMANDS_RESPONSE_CALLBACKS
+        )
+        legacy_responses = kwargs.get("legacy_responses", True)
+        protocol = kwargs.get("protocol")
+        if not legacy_responses:
+            cluster_response_callbacks["CLUSTER SHARDS"] = parse_cluster_shards_unified
+        elif protocol is None:
+            cluster_response_callbacks["CLUSTER SHARDS"] = (
+                parse_cluster_shards_with_str_keys
+            )
+        self.cluster_response_callbacks = CaseInsensitiveDict(
+            cluster_response_callbacks
         )
         self.result_callbacks = CaseInsensitiveDict(self.__class__.RESULT_CALLBACKS)
 
+        # For backward compatibility, mapping from existing policies to new one
+        self._command_flags_mapping: dict[str, Union[RequestPolicy, ResponsePolicy]] = {
+            self.__class__.RANDOM: RequestPolicy.DEFAULT_KEYLESS,
+            self.__class__.PRIMARIES: RequestPolicy.ALL_SHARDS,
+            self.__class__.ALL_NODES: RequestPolicy.ALL_NODES,
+            self.__class__.REPLICAS: RequestPolicy.ALL_REPLICAS,
+            self.__class__.DEFAULT_NODE: RequestPolicy.DEFAULT_NODE,
+            SLOT_ID: RequestPolicy.DEFAULT_KEYED,
+        }
+
+        self._policies_callback_mapping: dict[
+            Union[RequestPolicy, ResponsePolicy], Callable
+        ] = {
+            RequestPolicy.DEFAULT_KEYLESS: lambda command_name: [
+                self.get_random_primary_or_all_nodes(command_name)
+            ],
+            RequestPolicy.DEFAULT_KEYED: lambda command,
+            *args: self.get_nodes_from_slot(command, *args),
+            RequestPolicy.DEFAULT_NODE: lambda: [self.get_default_node()],
+            RequestPolicy.ALL_SHARDS: self.get_primaries,
+            RequestPolicy.ALL_NODES: self.get_nodes,
+            RequestPolicy.ALL_REPLICAS: self.get_replicas,
+            RequestPolicy.MULTI_SHARD: lambda *args,
+            **kwargs: self._split_multi_shard_command(*args, **kwargs),
+            RequestPolicy.SPECIAL: self.get_special_nodes,
+            ResponsePolicy.DEFAULT_KEYLESS: lambda res: res,
+            ResponsePolicy.DEFAULT_KEYED: lambda res: res,
+        }
+
+        self._policy_resolver = policy_resolver
         self.commands_parser = CommandsParser(self)
+
+        # Node where FT.AGGREGATE command is executed.
+        self._aggregate_nodes = None
         self._lock = threading.RLock()
+
+        MaintNotificationsAbstractRedisCluster.__init__(
+            self, maint_notifications_config, **kwargs
+        )
 
     def __enter__(self):
         return self
@@ -772,6 +1046,15 @@ class RedisCluster(AbstractRedisCluster, RedisClusterCommands):
     def get_random_node(self):
         return random.choice(list(self.nodes_manager.nodes_cache.values()))
 
+    def get_random_primary_or_all_nodes(self, command_name):
+        """
+        Returns random primary or all nodes depends on READONLY mode.
+        """
+        if self.read_from_replicas and command_name in READ_COMMANDS:
+            return self.get_random_node()
+
+        return self.get_random_primary_node()
+
     def get_nodes(self):
         return list(self.nodes_manager.nodes_cache.values())
 
@@ -800,6 +1083,77 @@ class RedisCluster(AbstractRedisCluster, RedisClusterCommands):
         Get the cluster's default node
         """
         return self.nodes_manager.default_node
+
+    def get_nodes_from_slot(self, command: str, *args):
+        """
+        Returns a list of nodes that hold the specified keys' slots.
+        """
+        # get the node that holds the key's slot
+        slot = self.determine_slot(*args)
+        node = self.nodes_manager.get_node_from_slot(
+            slot,
+            self.read_from_replicas and command in READ_COMMANDS,
+            self.load_balancing_strategy if command in READ_COMMANDS else None,
+        )
+        return [node]
+
+    def _split_multi_shard_command(self, *args, **kwargs) -> list[dict]:
+        """
+        Splits the command with Multi-Shard policy, to the multiple commands
+        """
+        keys = self._get_command_keys(*args)
+        commands = []
+
+        for key in keys:
+            commands.append(
+                {
+                    "args": (args[0], key),
+                    "kwargs": kwargs,
+                }
+            )
+
+        return commands
+
+    def get_special_nodes(self) -> Optional[list["ClusterNode"]]:
+        """
+        Returns a list of nodes for commands with a special policy.
+        """
+        if not self._aggregate_nodes:
+            raise RedisClusterException(
+                "Cannot execute FT.CURSOR commands without FT.AGGREGATE"
+            )
+
+        return self._aggregate_nodes
+
+    def get_random_primary_node(self) -> "ClusterNode":
+        """
+        Returns a random primary node
+        """
+        return random.choice(self.get_primaries())
+
+    def _evaluate_all_succeeded(self, res):
+        """
+        Evaluate the result of a command with ResponsePolicy.ALL_SUCCEEDED
+        """
+        first_successful_response = None
+
+        if isinstance(res, dict):
+            for key, value in res.items():
+                if value:
+                    if first_successful_response is None:
+                        first_successful_response = {key: value}
+                else:
+                    return {key: False}
+        else:
+            for response in res:
+                if response:
+                    if first_successful_response is None:
+                        # Dynamically resolve type
+                        first_successful_response = type(response)(response)
+                else:
+                    return type(response)(False)
+
+        return first_successful_response
 
     def set_default_node(self, node):
         """
@@ -839,6 +1193,34 @@ class RedisCluster(AbstractRedisCluster, RedisClusterCommands):
         """
         return ClusterPubSub(self, node=node, host=host, port=port, **kwargs)
 
+    def keyspace_notifications(
+        self,
+        key_prefix: Union[str, bytes, None] = None,
+        ignore_subscribe_messages: bool = True,
+    ) -> "ClusterKeyspaceNotifications":
+        """
+        Return a :class:`~redis.keyspace_notifications.ClusterKeyspaceNotifications`
+        object for subscribing to keyspace and keyevent notifications across
+        all primary nodes in the cluster.
+
+        Note: Keyspace notifications must be enabled on all Redis cluster nodes
+        via the ``notify-keyspace-events`` configuration option.
+
+        Args:
+            key_prefix: Optional prefix to filter and strip from keys in
+                        notifications.
+            ignore_subscribe_messages: If True, subscribe/unsubscribe
+                                      confirmations are not returned by
+                                      get_message/listen.
+        """
+        from redis.keyspace_notifications import ClusterKeyspaceNotifications
+
+        return ClusterKeyspaceNotifications(
+            self,
+            key_prefix=key_prefix,
+            ignore_subscribe_messages=ignore_subscribe_messages,
+        )
+
     def pipeline(self, transaction=None, shard_hint=None):
         """
         Cluster impl:
@@ -857,13 +1239,13 @@ class RedisCluster(AbstractRedisCluster, RedisClusterCommands):
             startup_nodes=self.nodes_manager.startup_nodes,
             result_callbacks=self.result_callbacks,
             cluster_response_callbacks=self.cluster_response_callbacks,
-            cluster_error_retry_attempts=self.retry.get_retries(),
             read_from_replicas=self.read_from_replicas,
             load_balancing_strategy=self.load_balancing_strategy,
             reinitialize_steps=self.reinitialize_steps,
             retry=self.retry,
             lock=self._lock,
             transaction=transaction,
+            event_dispatcher=self._event_dispatcher,
         )
 
     def lock(
@@ -951,9 +1333,12 @@ class RedisCluster(AbstractRedisCluster, RedisClusterCommands):
         """Set a custom Response Callback"""
         self.cluster_response_callbacks[command] = callback
 
-    def _determine_nodes(self, *args, **kwargs) -> List["ClusterNode"]:
-        # Determine which nodes should be executed the command on.
-        # Returns a list of target nodes.
+    def _determine_nodes(
+        self, *args, request_policy: RequestPolicy, **kwargs
+    ) -> List["ClusterNode"]:
+        """
+        Determines a nodes the command should be executed on.
+        """
         command = args[0].upper()
         if len(args) >= 2 and f"{args[0]} {args[1]}".upper() in self.command_flags:
             command = f"{args[0]} {args[1]}".upper()
@@ -965,32 +1350,25 @@ class RedisCluster(AbstractRedisCluster, RedisClusterCommands):
         else:
             # get the nodes group for this command if it was predefined
             command_flag = self.command_flags.get(command)
-        if command_flag == self.__class__.RANDOM:
-            # return a random node
-            return [self.get_random_node()]
-        elif command_flag == self.__class__.PRIMARIES:
-            # return all primaries
-            return self.get_primaries()
-        elif command_flag == self.__class__.REPLICAS:
-            # return all replicas
-            return self.get_replicas()
-        elif command_flag == self.__class__.ALL_NODES:
-            # return all nodes
-            return self.get_nodes()
-        elif command_flag == self.__class__.DEFAULT_NODE:
-            # return the cluster's default node
-            return [self.nodes_manager.default_node]
-        elif command in self.__class__.SEARCH_COMMANDS[0]:
-            return [self.nodes_manager.default_node]
+
+        if command_flag in self._command_flags_mapping:
+            request_policy = self._command_flags_mapping[command_flag]
+
+        policy_callback = self._policies_callback_mapping[request_policy]
+
+        if request_policy == RequestPolicy.DEFAULT_KEYED:
+            nodes = policy_callback(command, *args)
+        elif request_policy == RequestPolicy.MULTI_SHARD:
+            nodes = policy_callback(*args, **kwargs)
+        elif request_policy == RequestPolicy.DEFAULT_KEYLESS:
+            nodes = policy_callback(args[0])
         else:
-            # get the node that holds the key's slot
-            slot = self.determine_slot(*args)
-            node = self.nodes_manager.get_node_from_slot(
-                slot,
-                self.read_from_replicas and command in READ_COMMANDS,
-                self.load_balancing_strategy if command in READ_COMMANDS else None,
-            )
-            return [node]
+            nodes = policy_callback()
+
+        if args[0].lower() == "ft.aggregate":
+            self._aggregate_nodes = nodes
+
+        return nodes
 
     def _should_reinitialized(self):
         # To reinitialize the cluster on every MOVED error,
@@ -1010,6 +1388,36 @@ class RedisCluster(AbstractRedisCluster, RedisClusterCommands):
         k = self.encoder.encode(key)
         return key_slot(k)
 
+    # HIMPORT orchestration. PREPARE/DISCARD/DISCARDALL mutate the one shared
+    # HImportRegistry exactly once (every node pool references the same object, so the
+    # change is visible cluster-wide and applied lazily per node). SET routes by key
+    # slot to the owning primary and reuses that node's standalone himport_set (lazy
+    # PREPARE bundled with SET). See ``.agents/himport_client_support_spec.md``.
+
+    @property
+    def himport_registry(self) -> HImportRegistry:
+        """The cluster-wide HIMPORT fieldset registry (empty if none was declared).
+
+        Read-only: the registry is mutated only through the HIMPORT command methods.
+        """
+        return self._himport_registry
+
+    @experimental_method()
+    def himport_prepare(self, fieldset_name: str, fields: Iterable[FieldT]) -> bool:
+        """Declare an HIMPORT fieldset cluster-wide (shared registry, applied lazily)."""
+        self._himport_registry.prepare(fieldset_name, fields)
+        return True
+
+    @experimental_method()
+    def himport_discard(self, fieldset_name: str) -> int:
+        """Remove an HIMPORT fieldset cluster-wide (shared registry, applied lazily)."""
+        return 1 if self._himport_registry.discard(fieldset_name) else 0
+
+    @experimental_method()
+    def himport_discard_all(self) -> int:
+        """Remove all HIMPORT fieldsets cluster-wide (shared registry, applied lazily)."""
+        return self._himport_registry.discard_all()
+
     def _get_command_keys(self, *args):
         """
         Get the keys in the command. If the command has no keys in in, None is
@@ -1025,7 +1433,7 @@ class RedisCluster(AbstractRedisCluster, RedisClusterCommands):
         redis_conn = self.get_default_node().redis_connection
         return self.commands_parser.get_keys(redis_conn, *args)
 
-    def determine_slot(self, *args) -> int:
+    def determine_slot(self, *args) -> Optional[int]:
         """
         Figure out what slot to use based on args.
 
@@ -1039,6 +1447,12 @@ class RedisCluster(AbstractRedisCluster, RedisClusterCommands):
             return args[1]
 
         # Get the keys in the command
+
+        # CLIENT TRACKING is a special case.
+        # It doesn't have any keys, it needs to be sent to the provided nodes
+        # By default it will be sent to all nodes.
+        if command.upper() == "CLIENT TRACKING":
+            return None
 
         # EVAL and EVALSHA are common enough that it's wasteful to go to the
         # redis server to parse the keys. Besides, there is a bug in redis<7.0
@@ -1125,7 +1539,7 @@ class RedisCluster(AbstractRedisCluster, RedisClusterCommands):
         Wrapper for ERRORS_ALLOW_RETRY error handling.
 
         It will try the number of times specified by the retries property from
-        config option "self.retry" which defaults to 3 unless manually
+        config option "self.retry" which defaults to 10 unless manually
         configured.
 
         If it reaches the number of times, the command will raise the exception
@@ -1140,9 +1554,43 @@ class RedisCluster(AbstractRedisCluster, RedisClusterCommands):
         is_default_node = False
         target_nodes = None
         passed_targets = kwargs.pop("target_nodes", None)
+        command_policies = self._policy_resolver.resolve(args[0].lower())
+
         if passed_targets is not None and not self._is_nodes_flag(passed_targets):
             target_nodes = self._parse_target_nodes(passed_targets)
             target_nodes_specified = True
+
+        if not command_policies and not target_nodes_specified:
+            command = args[0].upper()
+            if len(args) >= 2 and f"{args[0]} {args[1]}".upper() in self.command_flags:
+                command = f"{args[0]} {args[1]}".upper()
+
+            # We only could resolve key properties if command is not
+            # in a list of pre-defined request policies
+            command_flag = self.command_flags.get(command)
+            if not command_flag:
+                # Fallback to default policy
+                if not self.get_default_node():
+                    slot = None
+                else:
+                    slot = self.determine_slot(*args)
+                if slot is None:
+                    command_policies = CommandPolicies()
+                else:
+                    command_policies = CommandPolicies(
+                        request_policy=RequestPolicy.DEFAULT_KEYED,
+                        response_policy=ResponsePolicy.DEFAULT_KEYED,
+                    )
+            else:
+                if command_flag in self._command_flags_mapping:
+                    command_policies = CommandPolicies(
+                        request_policy=self._command_flags_mapping[command_flag]
+                    )
+                else:
+                    command_policies = CommandPolicies()
+        elif not command_policies and target_nodes_specified:
+            command_policies = CommandPolicies()
+
         # If an error that allows retrying was thrown, the nodes and slots
         # cache were reinitialized. We will retry executing the command with
         # the updated cluster setup only when the target nodes can be
@@ -1154,14 +1602,22 @@ class RedisCluster(AbstractRedisCluster, RedisClusterCommands):
         retry_attempts = 0 if target_nodes_specified else self.retry.get_retries()
         # Add one for the first execution
         execute_attempts = 1 + retry_attempts
+        failure_count = 0
+
+        # Start timing for observability
+        start_time = time.monotonic()
+
         for _ in range(execute_attempts):
             try:
                 res = {}
                 if not target_nodes_specified:
                     # Determine the nodes to execute the command on
                     target_nodes = self._determine_nodes(
-                        *args, **kwargs, nodes_flag=passed_targets
+                        *args,
+                        request_policy=command_policies.request_policy,
+                        nodes_flag=passed_targets,
                     )
+
                     if not target_nodes:
                         raise RedisClusterException(
                             f"No targets were found to execute {args} command on"
@@ -1173,8 +1629,17 @@ class RedisCluster(AbstractRedisCluster, RedisClusterCommands):
                         is_default_node = True
                 for node in target_nodes:
                     res[node.name] = self._execute_command(node, *args, **kwargs)
+
+                    if command_policies.response_policy == ResponsePolicy.ONE_SUCCEEDED:
+                        break
+
                 # Return the processed result
-                return self._process_result(args[0], res, **kwargs)
+                return self._process_result(
+                    args[0],
+                    res,
+                    response_policy=command_policies.response_policy,
+                    **kwargs,
+                )
             except Exception as e:
                 if retry_attempts > 0 and type(e) in self.__class__.ERRORS_ALLOW_RETRY:
                     if is_default_node:
@@ -1183,10 +1648,71 @@ class RedisCluster(AbstractRedisCluster, RedisClusterCommands):
                     # The nodes and slots cache were reinitialized.
                     # Try again with the new cluster setup.
                     retry_attempts -= 1
+                    failure_count += 1
+
+                    if hasattr(e, "connection"):
+                        self._record_command_metric(
+                            command_name=args[0],
+                            duration_seconds=time.monotonic() - start_time,
+                            connection=e.connection,
+                            error=e,
+                        )
+
+                        self._record_error_metric(
+                            error=e,
+                            connection=e.connection,
+                            retry_attempts=failure_count,
+                        )
                     continue
                 else:
                     # raise the exception
+                    if hasattr(e, "connection"):
+                        self._record_error_metric(
+                            error=e,
+                            connection=e.connection,
+                            retry_attempts=failure_count,
+                            is_internal=False,
+                        )
                     raise e
+
+    def _himport_reconcile_discards(self, redis_node, connection):
+        """Delegate to the shared sync HIMPORT executor."""
+        return _himport_exec.reconcile_discards(redis_node, connection)
+
+    def _himport_prepare_and_set(
+        self,
+        redis_node,
+        connection,
+        key,
+        fieldset_name,
+        values,
+        fieldset,
+        asking: bool = False,
+    ):
+        """Delegate to the shared sync HIMPORT executor."""
+        return _himport_exec.prepare_and_set(
+            redis_node,
+            connection,
+            key,
+            fieldset_name,
+            values,
+            fieldset,
+            asking=asking,
+        )
+
+    def _himport_execute_set(
+        self,
+        redis_node,
+        connection,
+        key,
+        fieldset_name,
+        values,
+        asking: bool = False,
+    ):
+        """Delegate to the shared sync HIMPORT executor."""
+        return _himport_exec.execute_set(
+            redis_node, connection, key, fieldset_name, values, asking=asking
+        )
 
     def _execute_command(self, target_node, *args, **kwargs):
         """
@@ -1199,6 +1725,9 @@ class RedisCluster(AbstractRedisCluster, RedisClusterCommands):
         asking = False
         moved = False
         ttl = int(self.RedisClusterRequestTTL)
+
+        # Start timing for observability
+        start_time = time.monotonic()
 
         while ttl > 0:
             ttl -= 1
@@ -1220,38 +1749,138 @@ class RedisCluster(AbstractRedisCluster, RedisClusterCommands):
 
                 redis_node = self.get_redis_connection(target_node)
                 connection = get_connection(redis_node)
-                if asking:
+                himport_set = parse_himport_set_args(args)
+                if asking and himport_set is None:
                     connection.send_command("ASKING")
                     redis_node.parse_response(connection, "ASKING", **kwargs)
                     asking = False
-                connection.send_command(*args, **kwargs)
-                response = redis_node.parse_response(connection, command, **kwargs)
-
-                # Remove keys entry, it needs only for cache.
-                kwargs.pop("keys", None)
-
-                if command in self.cluster_response_callbacks:
-                    response = self.cluster_response_callbacks[command](
-                        response, **kwargs
+                if himport_set is not None:
+                    # args == (HIMPORT_SET, key, fieldset_name, *values). A raw
+                    # ``execute_command`` with too few args falls through to the
+                    # normal send path below so the server returns its arity error
+                    # instead of a client-side IndexError.
+                    # The cluster
+                    # executor lazily PREPAREs the fieldset on this connection and
+                    # reconciles deferred DISCARDs, then SETs; it already applies the
+                    # HIMPORT SET response callback, so it bypasses the cluster callback
+                    # block below.
+                    # This per-command branch in the hot dispatch path is deliberate
+                    # and has no cleaner alternative: this is the only seam where the
+                    # concrete routed connection is known, and connection-scoped
+                    # session setup can only happen once that connection is chosen.
+                    # On an ASK redirect ``asking`` is folded into the SET's own packed
+                    # write (see the guard above that suppresses the standalone ASKING
+                    # for HIMPORT SET) so the allowance sits immediately before the SET.
+                    # Clear ``asking`` first and carry the allowance in a dedicated
+                    # local: ``_himport_execute_set`` can raise a retriable MOVED/TRYAGAIN
+                    # mid-exchange, and a stale ``asking`` would shadow the moved-retry
+                    # branch on the next loop iteration (mirrors the async client).
+                    key, fieldset_name, values = himport_set
+                    ask_himport = asking
+                    asking = False
+                    response = self._himport_execute_set(
+                        redis_node,
+                        connection,
+                        key,
+                        fieldset_name,
+                        values,
+                        asking=ask_himport,
                     )
+                    kwargs.pop("keys", None)
+                else:
+                    connection.send_command(*args, **kwargs)
+                    response = redis_node.parse_response(connection, command, **kwargs)
+
+                    # Remove keys entry, it needs only for cache.
+                    kwargs.pop("keys", None)
+
+                    if command in self.cluster_response_callbacks:
+                        response = self.cluster_response_callbacks[command](
+                            response, **kwargs
+                        )
+
+                self._record_command_metric(
+                    command_name=command,
+                    duration_seconds=time.monotonic() - start_time,
+                    connection=connection,
+                )
                 return response
-            except AuthenticationError:
+            except AuthenticationError as e:
+                e.connection = connection if connection is not None else target_node
+                self._record_command_metric(
+                    command_name=command,
+                    duration_seconds=time.monotonic() - start_time,
+                    connection=e.connection,
+                    error=e,
+                )
+                raise
+            except MaxConnectionsError as e:
+                # MaxConnectionsError indicates client-side resource exhaustion
+                # (too many connections in the pool), not a node failure.
+                # Don't treat this as a node failure - just re-raise the error
+                # without reinitializing the cluster.
+                # The connection in the error is used to report the metrics based on host and port info
+                # so we use the target node object which contains the host and port info
+                # because we did not get the connection yet
+                e.connection = target_node
+                self._record_command_metric(
+                    command_name=command,
+                    duration_seconds=time.monotonic() - start_time,
+                    connection=e.connection,
+                    error=e,
+                )
                 raise
             except (ConnectionError, TimeoutError) as e:
+                if is_debug_log_enabled():
+                    socket_address = self._extracts_socket_address(connection)
+                    args_log_str = truncate_text(" ".join(map(safe_str, args)))
+                    logger.debug(
+                        f"{type(e).__name__} received for command {args_log_str}, on node {target_node.name}, "
+                        f"and connection: {connection} using local socket address: {socket_address}, error: {e}"
+                    )
+                # this is used to report the metrics based on host and port info
+                e.connection = connection if connection else target_node
+
                 # ConnectionError can also be raised if we couldn't get a
                 # connection from the pool before timing out, so check that
                 # this is an actual connection before attempting to disconnect.
                 if connection is not None:
                     connection.disconnect()
 
-                # Remove the failed node from the startup nodes before we try
-                # to reinitialize the cluster
-                self.nodes_manager.startup_nodes.pop(target_node.name, None)
-                # Reset the cluster node's connection
-                target_node.redis_connection = None
-                self.nodes_manager.initialize()
+                # Instead of setting to None, properly handle the pool
+                # Get the pool safely - redis_connection could be set to None
+                # by another thread between the check and access
+                redis_conn = target_node.redis_connection
+                if redis_conn is not None:
+                    pool = redis_conn.connection_pool
+                    if pool is not None:
+                        with pool._lock:
+                            # take care for the active connections in the pool
+                            pool.update_active_connections_for_reconnect()
+                            # disconnect all free connections
+                            pool.disconnect_free_connections()
+
+                # Move the failed node to the end of the cached nodes list
+                self.nodes_manager.move_node_to_end_of_cached_nodes(target_node.name)
+
+                # DON'T set redis_connection = None - keep the pool for reuse
+                # provide the name of the failed node so we can try it last
+                self.nodes_manager.initialize(last_failed_node_name=target_node.name)
+                self._record_command_metric(
+                    command_name=command,
+                    duration_seconds=time.monotonic() - start_time,
+                    connection=e.connection,
+                    error=e,
+                )
                 raise e
             except MovedError as e:
+                if is_debug_log_enabled():
+                    socket_address = self._extracts_socket_address(connection)
+                    args_log_str = truncate_text(" ".join(map(safe_str, args)))
+                    logger.debug(
+                        f"MOVED error received for command {args_log_str}, on node {target_node.name}, "
+                        f"and connection: {connection} using local socket address: {socket_address}, error: {e}"
+                    )
                 # First, we will try to patch the slots/nodes cache with the
                 # redirected node output and try again. If MovedError exceeds
                 # 'reinitialize_steps' number of times, we will force
@@ -1262,19 +1891,69 @@ class RedisCluster(AbstractRedisCluster, RedisClusterCommands):
                 # RedisCluster constructor.
                 self.reinitialize_counter += 1
                 if self._should_reinitialized():
-                    self.nodes_manager.initialize()
+                    # during this call all connections are closed or marked for disconnect,
+                    # so we don't need to disconnect the changed node's connections
+                    self.nodes_manager.initialize(
+                        additional_startup_nodes_info=[(e.host, e.port)]
+                    )
                     # Reset the counter
                     self.reinitialize_counter = 0
                 else:
-                    self.nodes_manager.update_moved_exception(e)
+                    self.nodes_manager.move_slot(e)
                 moved = True
-            except TryAgainError:
+                self._record_command_metric(
+                    command_name=command,
+                    duration_seconds=time.monotonic() - start_time,
+                    connection=connection,
+                    error=e,
+                )
+                self._record_error_metric(
+                    error=e,
+                    connection=connection,
+                )
+            except TryAgainError as e:
+                if is_debug_log_enabled():
+                    socket_address = self._extracts_socket_address(connection)
+                    args_log_str = truncate_text(" ".join(map(safe_str, args)))
+                    logger.debug(
+                        f"TRYAGAIN error received for command {args_log_str}, on node {target_node.name}, "
+                        f"and connection: {connection} using local socket address: {socket_address}"
+                    )
                 if ttl < self.RedisClusterRequestTTL / 2:
                     time.sleep(0.05)
+
+                self._record_command_metric(
+                    command_name=command,
+                    duration_seconds=time.monotonic() - start_time,
+                    connection=connection,
+                    error=e,
+                )
+                self._record_error_metric(
+                    error=e,
+                    connection=connection,
+                )
             except AskError as e:
+                if is_debug_log_enabled():
+                    socket_address = self._extracts_socket_address(connection)
+                    args_log_str = truncate_text(" ".join(map(safe_str, args)))
+                    logger.debug(
+                        f"ASK error received for command {args_log_str}, on node {target_node.name}, "
+                        f"and connection: {connection} using local socket address: {socket_address}, error: {e}"
+                    )
                 redirect_addr = get_node_name(host=e.host, port=e.port)
                 asking = True
-            except (ClusterDownError, SlotNotCoveredError):
+
+                self._record_command_metric(
+                    command_name=command,
+                    duration_seconds=time.monotonic() - start_time,
+                    connection=connection,
+                    error=e,
+                )
+                self._record_error_metric(
+                    error=e,
+                    connection=connection,
+                )
+            except (ClusterDownError, SlotNotCoveredError) as e:
                 # ClusterDownError can occur during a failover and to get
                 # self-healed, we will try to reinitialize the cluster layout
                 # and retry executing the command
@@ -1286,18 +1965,119 @@ class RedisCluster(AbstractRedisCluster, RedisClusterCommands):
 
                 time.sleep(0.25)
                 self.nodes_manager.initialize()
+
+                # if we have a connection, use it, otherwise use the target node
+                # object which contains the host and port info
+                # this is used to report the metrics based on host and port info
+                e.connection = connection if connection else target_node
+                self._record_command_metric(
+                    command_name=command,
+                    duration_seconds=time.monotonic() - start_time,
+                    connection=e.connection,
+                    error=e,
+                )
                 raise
-            except ResponseError:
+            except ResponseError as e:
+                # this is used to report the metrics based on host and port info
+                # ResponseError typically happens after get_connection() succeeds,
+                # so connection should be available
+                e.connection = connection if connection else target_node
+                self._record_command_metric(
+                    command_name=command,
+                    duration_seconds=time.monotonic() - start_time,
+                    connection=e.connection,
+                    error=e,
+                )
                 raise
             except Exception as e:
                 if connection:
                     connection.disconnect()
+
+                # if we have a connection, use it, otherwise use the target node
+                # object which contains the host and port info
+                # this is used to report the metrics based on host and port info
+                e.connection = connection if connection else target_node
+                self._record_command_metric(
+                    command_name=command,
+                    duration_seconds=time.monotonic() - start_time,
+                    connection=e.connection,
+                    error=e,
+                )
                 raise e
             finally:
                 if connection is not None:
                     redis_node.connection_pool.release(connection)
 
-        raise ClusterError("TTL exhausted.")
+        e = ClusterError("TTL exhausted.")
+        # In this case we should have an active connection.
+        # If we are here, we have received many MOVED or ASK errors and finally exhausted the TTL.
+        # This means that we used an active connection to read from the socket.
+        # This is used to report metrics based on the host and port information.
+        e.connection = connection
+        self._record_command_metric(
+            command_name=command,
+            duration_seconds=time.monotonic() - start_time,
+            connection=connection,
+            error=e,
+        )
+        raise e
+
+    def _record_command_metric(
+        self,
+        command_name: str,
+        duration_seconds: float,
+        connection: Connection,
+        error=None,
+    ):
+        """
+        Records operation duration metric directly.
+        """
+        host = connection.host if connection else "unknown"
+        port = connection.port if connection else 0
+        db = str(connection.db) if connection and hasattr(connection, "db") else "0"
+
+        record_operation_duration(
+            command_name=command_name,
+            duration_seconds=duration_seconds,
+            server_address=host,
+            server_port=port,
+            db_namespace=db,
+            error=error,
+        )
+
+    def _record_error_metric(
+        self,
+        error: Exception,
+        connection: Connection,
+        is_internal: bool = True,
+        retry_attempts: Optional[int] = None,
+    ):
+        """
+        Records error count metric directly.
+        """
+        record_error_count(
+            server_address=connection.host,
+            server_port=connection.port,
+            network_peer_address=connection.host,
+            network_peer_port=connection.port,
+            error_type=error,
+            retry_attempts=retry_attempts if retry_attempts is not None else 0,
+            is_internal=is_internal,
+        )
+
+    def _extracts_socket_address(
+        self, connection: Optional[Connection]
+    ) -> Optional[int]:
+        if connection is None:
+            return None
+        try:
+            socket_address = (
+                connection._sock.getsockname() if connection._sock else None
+            )
+            socket_address = socket_address[1] if socket_address else None
+        except (AttributeError, OSError):
+            pass
+        return socket_address
 
     def close(self) -> None:
         try:
@@ -1308,7 +2088,7 @@ class RedisCluster(AbstractRedisCluster, RedisClusterCommands):
             # RedisCluster's __init__ can fail before nodes_manager is set
             pass
 
-    def _process_result(self, command, res, **kwargs):
+    def _process_result(self, command, res, response_policy: ResponsePolicy, **kwargs):
         """
         Process the result of the executed command.
         The function would return a dict or a single value.
@@ -1320,13 +2100,13 @@ class RedisCluster(AbstractRedisCluster, RedisClusterCommands):
             Dict<node_name, command_result>
         """
         if command in self.result_callbacks:
-            return self.result_callbacks[command](command, res, **kwargs)
+            res = self.result_callbacks[command](command, res, **kwargs)
         elif len(res) == 1:
             # When we execute the command on a single node, we can
             # remove the dictionary and return a single response
-            return list(res.values())[0]
-        else:
-            return res
+            res = list(res.values())[0]
+
+        return self._policies_callback_mapping[response_policy](res)
 
     def load_external_module(self, funcname, func):
         """
@@ -1384,18 +2164,14 @@ class ClusterNode:
     def __eq__(self, obj):
         return isinstance(obj, ClusterNode) and obj.name == self.name
 
-    def __del__(self):
-        try:
-            if self.redis_connection is not None:
-                self.redis_connection.close()
-        except Exception:
-            # Ignore errors when closing the connection
-            pass
+    def __hash__(self):
+        return hash(self.name)
 
 
 class LoadBalancingStrategy(Enum):
     ROUND_ROBIN = "round_robin"
     ROUND_ROBIN_REPLICAS = "round_robin_replicas"
+    RANDOM = "random"
     RANDOM_REPLICA = "random_replica"
 
 
@@ -1405,8 +2181,9 @@ class LoadBalancer:
     """
 
     def __init__(self, start_index: int = 0) -> None:
-        self.primary_to_idx = {}
-        self.start_index = start_index
+        self.primary_to_idx: dict[str, int] = {}
+        self.start_index: int = start_index
+        self._lock: threading.Lock = threading.Lock()
 
     def get_server_index(
         self,
@@ -1415,7 +2192,15 @@ class LoadBalancer:
         load_balancing_strategy: LoadBalancingStrategy = LoadBalancingStrategy.ROUND_ROBIN,
     ) -> int:
         if load_balancing_strategy == LoadBalancingStrategy.RANDOM_REPLICA:
-            return self._get_random_replica_index(list_size)
+            return self._get_random_server_index(
+                list_size,
+                replicas_only=True,
+            )
+        elif load_balancing_strategy == LoadBalancingStrategy.RANDOM:
+            return self._get_random_server_index(
+                list_size,
+                replicas_only=False,
+            )
         else:
             return self._get_round_robin_index(
                 primary,
@@ -1424,30 +2209,32 @@ class LoadBalancer:
             )
 
     def reset(self) -> None:
-        self.primary_to_idx.clear()
+        with self._lock:
+            self.primary_to_idx.clear()
 
-    def _get_random_replica_index(self, list_size: int) -> int:
-        return random.randint(1, list_size - 1)
+    def _get_random_server_index(self, list_size: int, replicas_only: bool) -> int:
+        return random.randint(1 if replicas_only else 0, list_size - 1)
 
     def _get_round_robin_index(
         self, primary: str, list_size: int, replicas_only: bool
     ) -> int:
-        server_index = self.primary_to_idx.setdefault(primary, self.start_index)
-        if replicas_only and server_index == 0:
-            # skip the primary node index
-            server_index = 1
-        # Update the index for the next round
-        self.primary_to_idx[primary] = (server_index + 1) % list_size
-        return server_index
+        with self._lock:
+            server_index = self.primary_to_idx.setdefault(primary, self.start_index)
+            if replicas_only and server_index == 0:
+                # skip the primary node index
+                server_index = 1
+            # Update the index for the next round
+            self.primary_to_idx[primary] = (server_index + 1) % list_size
+            return server_index
 
 
 class NodesManager:
     def __init__(
         self,
-        startup_nodes,
+        startup_nodes: list[ClusterNode],
         from_url=False,
         require_full_coverage=False,
-        lock=None,
+        lock: Optional[threading.RLock] = None,
         dynamic_startup_nodes=True,
         connection_pool_class=ConnectionPool,
         address_remap: Optional[Callable[[Tuple[str, int]], Tuple[str, int]]] = None,
@@ -1455,27 +2242,45 @@ class NodesManager:
         cache_config: Optional[CacheConfig] = None,
         cache_factory: Optional[CacheFactoryInterface] = None,
         event_dispatcher: Optional[EventDispatcher] = None,
+        maint_notifications_config: Optional[MaintNotificationsConfig] = None,
+        himport_registry: HImportRegistry | None = None,
         **kwargs,
     ):
-        self.nodes_cache: Dict[str, Redis] = {}
-        self.slots_cache = {}
-        self.startup_nodes = {}
-        self.default_node = None
-        self.populate_startup_nodes(startup_nodes)
+        # Shared, cluster-wide HIMPORT registry object, injected onto every node's pool
+        # in create_redis_node (not forwarded through connection_kwargs, so all nodes
+        # reuse the one object rather than rebuilding it per node).
+        self.himport_registry = himport_registry
+        self.nodes_cache: dict[str, ClusterNode] = {}
+        self.slots_cache: dict[int, list[ClusterNode]] = {}
+        self.startup_nodes: dict[str, ClusterNode] = {n.name: n for n in startup_nodes}
+        self.default_node: Optional[ClusterNode] = None
+        self._epoch: int = 0
         self.from_url = from_url
         self._require_full_coverage = require_full_coverage
         self._dynamic_startup_nodes = dynamic_startup_nodes
         self.connection_pool_class = connection_pool_class
         self.address_remap = address_remap
-        self._cache = cache
-        self._cache_config = cache_config
-        self._cache_factory = cache_factory
-        self._moved_exception = None
+        self._cache: Optional[CacheInterface] = None
+        if cache:
+            self._cache = cache
+        elif cache_factory is not None:
+            self._cache = cache_factory.get_cache()
+        elif cache_config is not None:
+            self._cache = CacheFactory(cache_config).get_cache()
         self.connection_kwargs = kwargs
         self.read_load_balancer = LoadBalancer()
+
+        # nodes_cache / slots_cache / startup_nodes / default_node are protected by _lock
         if lock is None:
-            lock = threading.RLock()
-        self._lock = lock
+            self._lock = threading.RLock()
+        else:
+            self._lock = lock
+
+        # initialize holds _initialization_lock to dedup multiple calls to reinitialize;
+        # note that if we hold both _lock and _initialization_lock, we _must_ acquire
+        # _initialization_lock first (ie: to have a consistent order) to avoid deadlock.
+        self._initialization_lock: threading.RLock = threading.RLock()
+
         if event_dispatcher is None:
             self._event_dispatcher = EventDispatcher()
         else:
@@ -1483,9 +2288,16 @@ class NodesManager:
         self._credential_provider = self.connection_kwargs.get(
             "credential_provider", None
         )
+        self.maint_notifications_config = maint_notifications_config
+
         self.initialize()
 
-    def get_node(self, host=None, port=None, node_name=None):
+    def get_node(
+        self,
+        host: Optional[str] = None,
+        port: Optional[int] = None,
+        node_name: Optional[str] = None,
+    ) -> Optional[ClusterNode]:
         """
         Get the requested node from the cluster's nodes.
         nodes.
@@ -1495,53 +2307,74 @@ class NodesManager:
             # the user passed host and port
             if host == "localhost":
                 host = socket.gethostbyname(host)
-            return self.nodes_cache.get(get_node_name(host=host, port=port))
+            with self._lock:
+                return self.nodes_cache.get(get_node_name(host=host, port=port))
         elif node_name:
-            return self.nodes_cache.get(node_name)
+            with self._lock:
+                return self.nodes_cache.get(node_name)
         else:
             return None
 
-    def update_moved_exception(self, exception):
-        self._moved_exception = exception
-
-    def _update_moved_slots(self):
+    def move_slot(self, e: Union[AskError, MovedError]):
         """
         Update the slot's node with the redirected one
         """
-        e = self._moved_exception
-        redirected_node = self.get_node(host=e.host, port=e.port)
-        if redirected_node is not None:
-            # The node already exists
-            if redirected_node.server_type is not PRIMARY:
-                # Update the node's server type
-                redirected_node.server_type = PRIMARY
-        else:
-            # This is a new node, we will add it to the nodes cache
-            redirected_node = ClusterNode(e.host, e.port, PRIMARY)
-            self.nodes_cache[redirected_node.name] = redirected_node
-        if redirected_node in self.slots_cache[e.slot_id]:
-            # The MOVED error resulted from a failover, and the new slot owner
-            # had previously been a replica.
-            old_primary = self.slots_cache[e.slot_id][0]
-            # Update the old primary to be a replica and add it to the end of
-            # the slot's node list
-            old_primary.server_type = REPLICA
-            self.slots_cache[e.slot_id].append(old_primary)
-            # Remove the old replica, which is now a primary, from the slot's
-            # node list
-            self.slots_cache[e.slot_id].remove(redirected_node)
-            # Override the old primary with the new one
-            self.slots_cache[e.slot_id][0] = redirected_node
-            if self.default_node == old_primary:
-                # Update the default node with the new primary
-                self.default_node = redirected_node
-        else:
-            # The new slot owner is a new server, or a server from a different
-            # shard. We need to remove all current nodes from the slot's list
-            # (including replications) and add just the new node.
-            self.slots_cache[e.slot_id] = [redirected_node]
-        # Reset moved_exception
-        self._moved_exception = None
+        node_changed = False
+        with self._lock:
+            redirected_node = self.get_node(host=e.host, port=e.port)
+            if redirected_node is not None:
+                # The node already exists
+                if redirected_node.server_type is not PRIMARY:
+                    # Update the node's server type
+                    redirected_node.server_type = PRIMARY
+            else:
+                # This is a new node, we will add it to the nodes cache
+                redirected_node = ClusterNode(e.host, e.port, PRIMARY)
+                self.nodes_cache[redirected_node.name] = redirected_node
+
+            slot_nodes = self.slots_cache[e.slot_id]
+            if redirected_node not in slot_nodes:
+                # The new slot owner is a new server, or a server from a different
+                # shard. We need to remove all current nodes from the slot's list
+                # (including replications) and add just the new node.
+                self.slots_cache[e.slot_id] = [redirected_node]
+                node_changed = True
+            elif redirected_node is not slot_nodes[0]:
+                # The MOVED error resulted from a failover, and the new slot owner
+                # had previously been a replica.
+                old_primary = slot_nodes[0]
+                # Update the old primary to be a replica and add it to the end of
+                # the slot's node list
+                old_primary.server_type = REPLICA
+                slot_nodes.append(old_primary)
+                # Remove the old replica, which is now a primary, from the slot's
+                # node list
+                slot_nodes.remove(redirected_node)
+                # Override the old primary with the new one
+                slot_nodes[0] = redirected_node
+                if self.default_node == old_primary:
+                    # Update the default node with the new primary
+                    self.default_node = redirected_node
+                node_changed = True
+            # else: circular MOVED to current primary -> no-op
+        # Dispatch outside the lock so listeners can acquire their own locks
+        # without risk of deadlock. Skipped on the no-op branch to avoid
+        # needless reconciliation walks under MOVED storms. A listener must
+        # not break slots-cache refresh; log and continue so a single buggy
+        # listener cannot starve the rest.
+        if node_changed:
+            try:
+                self._event_dispatcher.dispatch(AfterSlotsCacheRefreshEvent())
+            except Exception as exc:
+                # Don't shadow the method parameter ``e``: ``except as`` binds
+                # the listener exception in the function scope and ``del``s
+                # the name on block exit (PEP 3134), which would also wipe
+                # out the original AskError/MovedError parameter.
+                logger.exception(
+                    "listener raised during slots-cache refresh: %s: %s",
+                    type(exc).__name__,
+                    exc,
+                )
 
     @deprecated_args(
         args_to_warn=["server_type"],
@@ -1553,66 +2386,86 @@ class NodesManager:
     )
     def get_node_from_slot(
         self,
-        slot,
-        read_from_replicas=False,
-        load_balancing_strategy=None,
-        server_type=None,
+        slot: int,
+        read_from_replicas: bool = False,
+        load_balancing_strategy: Optional[LoadBalancingStrategy] = None,
+        server_type: Optional[Literal["primary", "replica"]] = None,
     ) -> ClusterNode:
         """
         Gets a node that servers this hash slot
         """
-        if self._moved_exception:
-            with self._lock:
-                if self._moved_exception:
-                    self._update_moved_slots()
-
-        if self.slots_cache.get(slot) is None or len(self.slots_cache[slot]) == 0:
-            raise SlotNotCoveredError(
-                f'Slot "{slot}" not covered by the cluster. '
-                f'"require_full_coverage={self._require_full_coverage}"'
-            )
 
         if read_from_replicas is True and load_balancing_strategy is None:
             load_balancing_strategy = LoadBalancingStrategy.ROUND_ROBIN
 
-        if len(self.slots_cache[slot]) > 1 and load_balancing_strategy:
-            # get the server index using the strategy defined in load_balancing_strategy
-            primary_name = self.slots_cache[slot][0].name
-            node_idx = self.read_load_balancer.get_server_index(
-                primary_name, len(self.slots_cache[slot]), load_balancing_strategy
-            )
-        elif (
-            server_type is None
-            or server_type == PRIMARY
-            or len(self.slots_cache[slot]) == 1
-        ):
-            # return a primary
-            node_idx = 0
-        else:
-            # return a replica
-            # randomly choose one of the replicas
-            node_idx = random.randint(1, len(self.slots_cache[slot]) - 1)
+        with self._lock:
+            if self.slots_cache.get(slot) is None or len(self.slots_cache[slot]) == 0:
+                raise SlotNotCoveredError(
+                    f'Slot "{slot}" not covered by the cluster. '
+                    + f'"require_full_coverage={self._require_full_coverage}"'
+                )
 
-        return self.slots_cache[slot][node_idx]
+            if len(self.slots_cache[slot]) > 1 and load_balancing_strategy:
+                # get the server index using the strategy defined in load_balancing_strategy
+                primary_name = self.slots_cache[slot][0].name
+                node_idx = self.read_load_balancer.get_server_index(
+                    primary_name, len(self.slots_cache[slot]), load_balancing_strategy
+                )
+            elif (
+                server_type is None
+                or server_type == PRIMARY
+                or len(self.slots_cache[slot]) == 1
+            ):
+                # return a primary
+                node_idx = 0
+            else:
+                # return a replica
+                # randomly choose one of the replicas
+                node_idx = random.randint(1, len(self.slots_cache[slot]) - 1)
 
-    def get_nodes_by_server_type(self, server_type):
+            return self.slots_cache[slot][node_idx]
+
+    def get_nodes_by_server_type(self, server_type: Literal["primary", "replica"]):
         """
         Get all nodes with the specified server type
         :param server_type: 'primary' or 'replica'
         :return: list of ClusterNode
         """
-        return [
-            node
-            for node in self.nodes_cache.values()
-            if node.server_type == server_type
-        ]
+        with self._lock:
+            return [
+                node
+                for node in self.nodes_cache.values()
+                if node.server_type == server_type
+            ]
 
+    @deprecated_function(
+        reason="This method is not used anymore internally. The startup nodes are populated automatically.",
+        version="7.0.2",
+    )
     def populate_startup_nodes(self, nodes):
         """
         Populate all startup nodes and filters out any duplicates
         """
-        for n in nodes:
-            self.startup_nodes[n.name] = n
+        with self._lock:
+            for n in nodes:
+                self.startup_nodes[n.name] = n
+
+    def move_node_to_end_of_cached_nodes(self, node_name: str) -> None:
+        """
+        Move a failing node to the end of startup_nodes and nodes_cache so it's
+        tried last during reinitialization and when selecting the default node.
+        If the node is not in the respective list, nothing is done.
+        """
+        # Move in startup_nodes
+        if node_name in self.startup_nodes and len(self.startup_nodes) > 1:
+            node = self.startup_nodes.pop(node_name)
+            self.startup_nodes[node_name] = node  # Re-insert at end
+
+        # Move in nodes_cache - this affects get_nodes_by_server_type ordering
+        # which is used to select the default_node during initialize()
+        if node_name in self.nodes_cache and len(self.nodes_cache) > 1:
+            node = self.nodes_cache.pop(node_name)
+            self.nodes_cache[node_name] = node  # Re-insert at end
 
     def check_slots_coverage(self, slots_cache):
         # Validate if all slots are covered or if we should try next
@@ -1630,7 +2483,10 @@ class NodesManager:
         for node in nodes:
             if node.redis_connection is None:
                 node.redis_connection = self.create_redis_node(
-                    host=node.host, port=node.port, **self.connection_kwargs
+                    host=node.host,
+                    port=node.port,
+                    maint_notifications_config=self.maint_notifications_config,
+                    **self.connection_kwargs,
                 )
                 connection_pools.append(node.redis_connection.connection_pool)
 
@@ -1640,7 +2496,12 @@ class NodesManager:
             )
         )
 
-    def create_redis_node(self, host, port, **kwargs):
+    def create_redis_node(
+        self,
+        host,
+        port,
+        **kwargs,
+    ):
         # We are configuring the connection pool not to retry
         # connections on lower level clients to avoid retrying
         # connections to nodes that are not reachable
@@ -1655,7 +2516,7 @@ class NodesManager:
         )
 
         if self.from_url:
-            # Create a redis node with a costumed connection pool
+            # Create a redis node with a custom connection pool
             kwargs.update({"host": host})
             kwargs.update({"port": port})
             kwargs.update({"cache": self._cache})
@@ -1669,6 +2530,14 @@ class NodesManager:
                 retry=node_retry_config,
                 **kwargs,
             )
+        # Share the one cluster-wide HIMPORT registry with this node's pool. Injected
+        # here (rather than forwarded via connection_kwargs) so every node reuses the
+        # same object; the node has no connections yet, so this is safe.
+        if self.himport_registry is not None:
+            r.connection_pool.himport_registry = self.himport_registry
+            r.connection_pool.connection_kwargs["himport_registry"] = (
+                self.himport_registry
+            )
         return r
 
     def _get_or_create_cluster_node(self, host, port, role, tmp_nodes_cache):
@@ -1679,22 +2548,54 @@ class NodesManager:
             # before creating a new cluster node, check if the cluster node already
             # exists in the current nodes cache and has a valid connection so we can
             # reuse it
-            target_node = self.nodes_cache.get(node_name)
-            if target_node is None or target_node.redis_connection is None:
-                # create new cluster node for this cluster
-                target_node = ClusterNode(host, port, role)
-            if target_node.server_type != role:
-                target_node.server_type = role
+            redis_connection: Optional[Redis] = None
+            with self._lock:
+                previous_node = self.nodes_cache.get(node_name)
+                if previous_node:
+                    redis_connection = previous_node.redis_connection
+            # don't update the old ClusterNode, so we don't update its role
+            # outside of the lock
+            target_node = ClusterNode(host, port, role, redis_connection)
             # add this node to the nodes cache
             tmp_nodes_cache[target_node.name] = target_node
 
         return target_node
 
-    def initialize(self):
+    def _get_epoch(self) -> int:
+        """
+        Get the current epoch value. This method exists primarily to allow
+        tests to mock the epoch fetch and control race condition timing.
+        """
+        with self._lock:
+            return self._epoch
+
+    def initialize(
+        self,
+        additional_startup_nodes_info: Optional[List[Tuple[str, int]]] = None,
+        disconnect_startup_nodes_pools: bool = True,
+        last_failed_node_name: Optional[str] = None,
+    ):
         """
         Initializes the nodes cache, slots cache and redis connections.
         :startup_nodes:
             Responsible for discovering other nodes in the cluster
+        :disconnect_startup_nodes_pools:
+            Whether to disconnect the connection pool of the startup nodes
+            after the initialization is complete. This is useful when the
+            startup nodes are not part of the cluster and we want to avoid
+            keeping the connection open.
+        :additional_startup_nodes_info:
+            Additional nodes to add temporarily to the startup nodes.
+            The additional nodes will be used just in the process of extraction of the slots
+            and nodes information from the cluster.
+            This is useful when we want to add new nodes to the cluster
+            and initialize the client
+            with them.
+            The format of the list is a list of tuples, where each tuple contains
+            the host and port of the node.
+        :last_failed_node_name:
+            Name of the node that just failed and should be tried only after
+            other startup and additional startup nodes during this refresh.
         """
         self.reset()
         tmp_nodes_cache = {}
@@ -1704,135 +2605,218 @@ class NodesManager:
         fully_covered = False
         kwargs = self.connection_kwargs
         exception = None
-        # Convert to tuple to prevent RuntimeError if self.startup_nodes
-        # is modified during iteration
-        for startup_node in tuple(self.startup_nodes.values()):
-            try:
-                if startup_node.redis_connection:
-                    r = startup_node.redis_connection
-                else:
-                    # Create a new Redis connection
-                    r = self.create_redis_node(
-                        startup_node.host, startup_node.port, **kwargs
-                    )
-                    self.startup_nodes[startup_node.name].redis_connection = r
-                # Make sure cluster mode is enabled on this node
-                try:
-                    cluster_slots = str_if_bytes(r.execute_command("CLUSTER SLOTS"))
-                    r.connection_pool.disconnect()
-                except ResponseError:
-                    raise RedisClusterException(
-                        "Cluster mode is not enabled on this node"
-                    )
-                startup_nodes_reachable = True
-            except Exception as e:
-                # Try the next startup node.
-                # The exception is saved and raised only if we have no more nodes.
-                exception = e
-                continue
+        epoch = self._get_epoch()
+        if additional_startup_nodes_info is None:
+            additional_startup_nodes_info = []
 
-            # CLUSTER SLOTS command results in the following output:
-            # [[slot_section[from_slot,to_slot,master,replica1,...,replicaN]]]
-            # where each node contains the following list: [IP, port, node_id]
-            # Therefore, cluster_slots[0][2][0] will be the IP address of the
-            # primary node of the first slot section.
-            # If there's only one server in the cluster, its ``host`` is ''
-            # Fix it to the host in startup_nodes
-            if (
-                len(cluster_slots) == 1
-                and len(cluster_slots[0][2][0]) == 0
-                and len(self.startup_nodes) == 1
-            ):
-                cluster_slots[0][2][0] = startup_node.host
+        with self._initialization_lock:
+            with self._lock:
+                if epoch != self._epoch:
+                    # another thread has already re-initialized the nodes; don't
+                    # bother running again
+                    return
 
-            for slot in cluster_slots:
-                primary_node = slot[2]
-                host = str_if_bytes(primary_node[0])
-                if host == "":
-                    host = startup_node.host
-                port = int(primary_node[1])
-                host, port = self.remap_host_port(host, port)
+            with self._lock:
+                startup_nodes = list(self.startup_nodes.values())
+            deferred_failed_nodes = []
+            if last_failed_node_name is not None:
+                for index, node in enumerate(startup_nodes):
+                    if node.name == last_failed_node_name:
+                        deferred_failed_nodes.append(startup_nodes.pop(index))
+                        break
+            if len(startup_nodes) > 1:
+                # Vary which startup node is queried first so clients do not
+                # all reinitialize through the same node.
+                random.shuffle(startup_nodes)
 
-                nodes_for_slot = []
-
-                target_node = self._get_or_create_cluster_node(
-                    host, port, PRIMARY, tmp_nodes_cache
+            additional_startup_nodes = [
+                ClusterNode(host, port) for host, port in additional_startup_nodes_info
+            ]
+            if last_failed_node_name is not None:
+                for index, node in enumerate(additional_startup_nodes):
+                    if node.name == last_failed_node_name:
+                        if not deferred_failed_nodes:
+                            deferred_failed_nodes.append(node)
+                        additional_startup_nodes.pop(index)
+                        break
+            if is_debug_log_enabled():
+                logger.debug(
+                    f"Topology refresh: using additional nodes: {[node.name for node in additional_startup_nodes]}; "
+                    f"and startup nodes: {[node.name for node in startup_nodes]}"
                 )
-                nodes_for_slot.append(target_node)
 
-                replica_nodes = slot[3:]
-                for replica_node in replica_nodes:
-                    host = str_if_bytes(replica_node[0])
-                    port = int(replica_node[1])
-                    host, port = self.remap_host_port(host, port)
-                    target_replica_node = self._get_or_create_cluster_node(
-                        host, port, REPLICA, tmp_nodes_cache
-                    )
-                    nodes_for_slot.append(target_replica_node)
+            for startup_node in chain(
+                startup_nodes,
+                additional_startup_nodes,
+                deferred_failed_nodes,
+            ):
+                try:
+                    if startup_node.redis_connection:
+                        r = startup_node.redis_connection
 
-                for i in range(int(slot[0]), int(slot[1]) + 1):
-                    if i not in tmp_slots:
-                        tmp_slots[i] = nodes_for_slot
                     else:
-                        # Validate that 2 nodes want to use the same slot cache
-                        # setup
-                        tmp_slot = tmp_slots[i][0]
-                        if tmp_slot.name != target_node.name:
-                            disagreements.append(
-                                f"{tmp_slot.name} vs {target_node.name} on slot: {i}"
+                        # Create a new Redis connection
+                        if is_debug_log_enabled():
+                            socket_timeout = kwargs.get("socket_timeout", "not set")
+                            socket_connect_timeout = kwargs.get(
+                                "socket_connect_timeout", "not set"
                             )
+                            maint_enabled = (
+                                self.maint_notifications_config.enabled
+                                if self.maint_notifications_config
+                                else False
+                            )
+                            logger.debug(
+                                "Topology refresh: Creating new Redis connection to "
+                                f"{startup_node.host}:{startup_node.port}; "
+                                f"with socket_timeout: {socket_timeout}, and "
+                                f"socket_connect_timeout: {socket_connect_timeout}, "
+                                "and maint_notifications enabled: "
+                                f"{maint_enabled}"
+                            )
+                        r = self.create_redis_node(
+                            startup_node.host,
+                            startup_node.port,
+                            maint_notifications_config=self.maint_notifications_config,
+                            **kwargs,
+                        )
+                        if startup_node in self.startup_nodes.values():
+                            self.startup_nodes[startup_node.name].redis_connection = r
+                        else:
+                            startup_node.redis_connection = r
+                    try:
+                        # Make sure cluster mode is enabled on this node
+                        cluster_slots = str_if_bytes(r.execute_command("CLUSTER SLOTS"))
+                        if disconnect_startup_nodes_pools:
+                            with r.connection_pool._lock:
+                                # take care to clear connections before we move on
+                                # mark all active connections for reconnect - they will be
+                                # reconnected on next use, but will allow current in flight commands to complete first
+                                r.connection_pool.update_active_connections_for_reconnect()
+                                # Needed to clear READONLY state when it is no longer applicable
+                                r.connection_pool.disconnect_free_connections()
+                    except ResponseError:
+                        raise RedisClusterException(
+                            "Cluster mode is not enabled on this node"
+                        )
+                    startup_nodes_reachable = True
+                except Exception as e:
+                    # Try the next startup node.
+                    # The exception is saved and raised only if we have no more nodes.
+                    exception = e
+                    continue
 
-                            if len(disagreements) > 5:
-                                raise RedisClusterException(
-                                    f"startup_nodes could not agree on a valid "
-                                    f"slots cache: {', '.join(disagreements)}"
+                # CLUSTER SLOTS command results in the following output:
+                # [[slot_section[from_slot,to_slot,master,replica1,...,replicaN]]]
+                # where each node contains the following list: [IP, port, node_id]
+                # Therefore, cluster_slots[0][2][0] will be the IP address of the
+                # primary node of the first slot section.
+                # If there's only one server in the cluster, its ``host`` is ''
+                # Fix it to the host in startup_nodes
+                if (
+                    len(cluster_slots) == 1
+                    and len(cluster_slots[0][2][0]) == 0
+                    and len(self.startup_nodes) == 1
+                ):
+                    cluster_slots[0][2][0] = startup_node.host
+
+                for slot in cluster_slots:
+                    primary_node = slot[2]
+                    host = str_if_bytes(primary_node[0])
+                    if host == "":
+                        host = startup_node.host
+                    port = int(primary_node[1])
+                    host, port = self.remap_host_port(host, port)
+
+                    nodes_for_slot = []
+
+                    target_node = self._get_or_create_cluster_node(
+                        host, port, PRIMARY, tmp_nodes_cache
+                    )
+                    nodes_for_slot.append(target_node)
+
+                    replica_nodes = slot[3:]
+                    for replica_node in replica_nodes:
+                        host = str_if_bytes(replica_node[0])
+                        port = int(replica_node[1])
+                        host, port = self.remap_host_port(host, port)
+                        target_replica_node = self._get_or_create_cluster_node(
+                            host, port, REPLICA, tmp_nodes_cache
+                        )
+                        nodes_for_slot.append(target_replica_node)
+
+                    for i in range(int(slot[0]), int(slot[1]) + 1):
+                        if i not in tmp_slots:
+                            tmp_slots[i] = nodes_for_slot
+                        else:
+                            # Validate that 2 nodes want to use the same slot cache
+                            # setup
+                            tmp_slot = tmp_slots[i][0]
+                            if tmp_slot.name != target_node.name:
+                                disagreements.append(
+                                    f"{tmp_slot.name} vs {target_node.name} on slot: {i}"
                                 )
 
-            fully_covered = self.check_slots_coverage(tmp_slots)
-            if fully_covered:
-                # Don't need to continue to the next startup node if all
-                # slots are covered
-                break
+                                if len(disagreements) > 5:
+                                    raise RedisClusterException(
+                                        f"startup_nodes could not agree on a valid "
+                                        f"slots cache: {', '.join(disagreements)}"
+                                    )
 
-        if not startup_nodes_reachable:
-            raise RedisClusterException(
-                f"Redis Cluster cannot be connected. Please provide at least "
-                f"one reachable node: {str(exception)}"
-            ) from exception
+                fully_covered = self.check_slots_coverage(tmp_slots)
+                if fully_covered:
+                    # Don't need to continue to the next startup node if all
+                    # slots are covered
+                    break
 
-        if self._cache is None and self._cache_config is not None:
-            if self._cache_factory is None:
-                self._cache = CacheFactory(self._cache_config).get_cache()
-            else:
-                self._cache = self._cache_factory.get_cache()
+            if not startup_nodes_reachable:
+                raise RedisClusterException(
+                    f"Redis Cluster cannot be connected. Please provide at least "
+                    f"one reachable node: {str(exception)}"
+                ) from exception
 
-        # Create Redis connections to all nodes
-        self.create_redis_connections(list(tmp_nodes_cache.values()))
+            # Create Redis connections to all nodes
+            self.create_redis_connections(list(tmp_nodes_cache.values()))
 
-        # Check if the slots are not fully covered
-        if not fully_covered and self._require_full_coverage:
-            # Despite the requirement that the slots be covered, there
-            # isn't a full coverage
-            raise RedisClusterException(
-                f"All slots are not covered after query all startup_nodes. "
-                f"{len(tmp_slots)} of {REDIS_CLUSTER_HASH_SLOTS} "
-                f"covered..."
-            )
+            # Check if the slots are not fully covered
+            if not fully_covered and self._require_full_coverage:
+                # Despite the requirement that the slots be covered, there
+                # isn't a full coverage
+                raise RedisClusterException(
+                    f"All slots are not covered after query all startup_nodes. "
+                    f"{len(tmp_slots)} of {REDIS_CLUSTER_HASH_SLOTS} "
+                    f"covered..."
+                )
 
-        # Set the tmp variables to the real variables
-        self.nodes_cache = tmp_nodes_cache
-        self.slots_cache = tmp_slots
-        # Set the default node
-        self.default_node = self.get_nodes_by_server_type(PRIMARY)[0]
-        if self._dynamic_startup_nodes:
-            # Populate the startup nodes with all discovered nodes
-            self.startup_nodes = tmp_nodes_cache
-        # If initialize was called after a MovedError, clear it
-        self._moved_exception = None
+            # Set the tmp variables to the real variables
+            with self._lock:
+                self.nodes_cache = tmp_nodes_cache
+                self.slots_cache = tmp_slots
+                # Set the default node
+                self.default_node = self.get_nodes_by_server_type(PRIMARY)[0]
+                if self._dynamic_startup_nodes:
+                    # Populate the startup nodes with all discovered nodes
+                    self.startup_nodes = tmp_nodes_cache
+                # Increment the epoch to signal that initialization has completed
+                self._epoch += 1
+            # Dispatch so listeners (e.g. ClusterPubSub) can reconcile per-node
+            # state after slot ownership may have changed. A listener must not
+            # break slots-cache refresh; log and continue so a single buggy
+            # listener cannot starve the rest.
+            try:
+                self._event_dispatcher.dispatch(AfterSlotsCacheRefreshEvent())
+            except Exception as e:
+                logger.exception(
+                    "listener raised during slots-cache refresh: %s: %s",
+                    type(e).__name__,
+                    e,
+                )
 
     def close(self) -> None:
-        self.default_node = None
-        for node in self.nodes_cache.values():
+        with self._lock:
+            self.default_node = None
+            nodes = tuple(self.nodes_cache.values())
+        for node in nodes:
             if node.redis_connection:
                 node.redis_connection.close()
 
@@ -1853,15 +2837,62 @@ class NodesManager:
             return self.address_remap((host, port))
         return host, port
 
-    def find_connection_owner(self, connection: Connection) -> Optional[Redis]:
+    def find_connection_owner(self, connection: Connection) -> Optional[ClusterNode]:
         node_name = get_node_name(connection.host, connection.port)
-        for node in tuple(self.nodes_cache.values()):
-            if node.redis_connection:
-                conn_args = node.redis_connection.connection_pool.connection_kwargs
-                if node_name == get_node_name(
-                    conn_args.get("host"), conn_args.get("port")
-                ):
-                    return node
+        with self._lock:
+            for node in tuple(self.nodes_cache.values()):
+                if node.redis_connection:
+                    conn_args = node.redis_connection.connection_pool.connection_kwargs
+                    if node_name == get_node_name(
+                        conn_args.get("host"), conn_args.get("port")
+                    ):
+                        return node
+        return None
+
+
+def _unregister_slots_cache_listener(
+    dispatcher_ref: "weakref.ref[EventDispatcher]",
+    listener: EventListenerInterface,
+    event_type: Type[object],
+) -> None:
+    # Module-level finalizer callback. Kept free of strong references to the
+    # owning ClusterPubSub so attaching it via weakref.finalize does not
+    # extend the pubsub's lifetime.
+    dispatcher = dispatcher_ref()
+    if dispatcher is not None:
+        dispatcher.unregister_listeners({event_type: [listener]})
+
+
+class ClusterPubSubSlotsCacheListener(EventListenerInterface):
+    """
+    Listener that forwards AfterSlotsCacheRefreshEvent to a ClusterPubSub.
+
+    Holds a weak reference to the pubsub so it does not keep the instance
+    alive. Deterministic cleanup of the dispatcher's strong reference to this
+    listener is performed by a ``weakref.finalize`` attached to the owning
+    ClusterPubSub in ``ClusterPubSub.__init__``.
+    """
+
+    def __init__(self, pubsub: "ClusterPubSub") -> None:
+        self._pubsub_ref: "weakref.ref[ClusterPubSub]" = weakref.ref(pubsub)
+
+    def listen(self, event: object) -> None:
+        pubsub = self._pubsub_ref()
+        if pubsub is None:
+            # Race window between pubsub GC and the finalizer running; safe
+            # no-op, finalizer will remove this listener shortly.
+            return
+        try:
+            pubsub.on_slots_changed()
+        except Exception as e:
+            # Listeners must not break slots-cache refresh; log and continue so
+            # a single buggy pubsub cannot starve the rest.
+            logger.exception(
+                "pubsub %r raised during slots-cache change: %s: %s",
+                pubsub,
+                type(e).__name__,
+                e,
+            )
 
 
 class ClusterPubSub(PubSub):
@@ -1870,7 +2901,7 @@ class ClusterPubSub(PubSub):
 
     IMPORTANT: before using ClusterPubSub, read about the known limitations
     with pubsub in Cluster mode and learn how to workaround them:
-    https://redis-py-cluster.readthedocs.io/en/stable/pubsub.html
+    https://redis.readthedocs.io/en/stable/clustering.html#known-pubsub-limitations
     """
 
     def __init__(
@@ -1905,6 +2936,29 @@ class ClusterPubSub(PubSub):
         )
         self.cluster = redis_cluster
         self.node_pubsub_mapping = {}
+        # Reverse index: shard channel (normalized) -> owning node.name. Used to
+        # route sunsubscribe calls and reconcile subscriptions after slot
+        # migration / failover.
+        self._shard_channel_to_node: dict = {}
+        # Dedicated lock for shard-subscription bookkeeping. Distinct from
+        # PubSub.self._lock (which serializes wire I/O on the cluster-level
+        # connection used by aclose / send_command / regular subscribe) so
+        # that reconciliation cannot starve those unrelated paths during
+        # long per-channel migrations.
+        self._shard_state_lock: threading.RLock = threading.RLock()
+        # Worker executor for off-loading slot-migration reconciliation from
+        # the dispatch call site (mirrors async's asyncio.create_task model so
+        # the thread that triggered MovedError / topology refresh is not
+        # blocked on per-channel sunsubscribe / ssubscribe network I/O).
+        # Lazy-created on first on_slots_changed() to avoid a persistent
+        # worker thread for pubsubs that never see a slot migration.
+        # Initialized before super().__init__() because PubSub.__init__ calls
+        # self.reset(), which resolves to ClusterPubSub.reset() and reads
+        # these attributes.
+        self._reconcile_executor: Optional[ThreadPoolExecutor] = None
+        # In-flight reconciliation futures; tracked so reset() can cancel
+        # pending work and so exceptions surface via a done-callback.
+        self._reconcile_futures: Set[Future] = set()
         self._pubsubs_generator = self._pubsubs_generator()
         if event_dispatcher is None:
             self._event_dispatcher = EventDispatcher()
@@ -1916,6 +2970,22 @@ class ClusterPubSub(PubSub):
             push_handler_func=push_handler_func,
             event_dispatcher=self._event_dispatcher,
             **kwargs,
+        )
+        # Subscribe to slots-cache change notifications so shard subscriptions
+        # can be reconciled automatically after topology refreshes.
+        nm_dispatcher = redis_cluster.nodes_manager._event_dispatcher
+        self._slots_cache_listener = ClusterPubSubSlotsCacheListener(self)
+        nm_dispatcher.register_listeners(
+            {AfterSlotsCacheRefreshEvent: [self._slots_cache_listener]}
+        )
+        # Deterministic GC-time cleanup so short-lived pubsubs do not leak
+        # listeners in the dispatcher when no slots-refresh event ever fires.
+        weakref.finalize(
+            self,
+            _unregister_slots_cache_listener,
+            weakref.ref(nm_dispatcher),
+            self._slots_cache_listener,
+            AfterSlotsCacheRefreshEvent,
         )
 
     def set_pubsub_node(self, cluster, node=None, host=None, port=None):
@@ -1999,7 +3069,7 @@ class ClusterPubSub(PubSub):
             # register a callback that re-subscribes to any channels we
             # were listening to when we were disconnected
             self.connection.register_connect_callback(self.on_connect)
-            if self.push_handler_func is not None and not HIREDIS_AVAILABLE:
+            if self.push_handler_func is not None:
                 self.connection._parser.set_pubsub_push_handler(self.push_handler_func)
             self._event_dispatcher.dispatch(
                 AfterPubSubConnectionInstantiationEvent(
@@ -2009,87 +3079,419 @@ class ClusterPubSub(PubSub):
         connection = self.connection
         self._execute(connection, connection.send_command, *args)
 
+    def _resubscribe_shard_channels(self) -> None:
+        # A single node can own multiple slot ranges, so a batched
+        # ``SSUBSCRIBE`` covering every tracked channel would be rejected by
+        # Redis with a ``CROSSSLOT`` error. Group by hash slot and emit one
+        # ``SSUBSCRIBE`` per slot.
+        by_slot: defaultdict[int, dict] = defaultdict(dict)
+        for k, v in self.shard_channels.items():
+            by_slot[key_slot(self.encoder.encode(k))][k] = v
+        for subscriptions in by_slot.values():
+            self._resubscribe(subscriptions, self.ssubscribe)
+
     def _get_node_pubsub(self, node):
         try:
             return self.node_pubsub_mapping[node.name]
         except KeyError:
-            pubsub = node.redis_connection.pubsub(
-                push_handler_func=self.push_handler_func
+            redis_connection = self.cluster.get_redis_connection(node)
+            pubsub = redis_connection.pubsub(
+                push_handler_func=self.push_handler_func,
+            )
+            # Replay shard subscriptions on reconnect with slot-aware grouping
+            # so that channels spanning multiple slots owned by this node do
+            # not trigger a CROSSSLOT error.
+            pubsub._resubscribe_shard_channels = MethodType(
+                ClusterPubSub._resubscribe_shard_channels, pubsub
             )
             self.node_pubsub_mapping[node.name] = pubsub
             return pubsub
 
-    def _sharded_message_generator(self):
+    def _find_node_name_for_pubsub(self, pubsub):
+        for node_name, node_pubsub in self.node_pubsub_mapping.items():
+            if node_pubsub is pubsub:
+                return node_name
+        return None
+
+    def _sharded_message_generator(self, timeout=0.0):
         for _ in range(len(self.node_pubsub_mapping)):
             pubsub = next(self._pubsubs_generator)
-            message = pubsub.get_message()
+            # Don't pass ignore_subscribe_messages here - let get_sharded_message
+            # handle the filtering after processing subscription state changes
+            message = pubsub.get_message(
+                ignore_subscribe_messages=False, timeout=timeout
+            )
             if message is not None:
-                return message
-        return None
+                return pubsub, message
+        return None, None
 
     def _pubsubs_generator(self):
         while True:
-            yield from self.node_pubsub_mapping.values()
+            current_nodes = list(self.node_pubsub_mapping.values())
+            if not current_nodes:
+                return  # Avoid infinite loop when no subscriptions exist
+            yield from current_nodes
 
     def get_sharded_message(
         self, ignore_subscribe_messages=False, timeout=0.0, target_node=None
     ):
         if target_node:
-            message = self.node_pubsub_mapping[target_node.name].get_message(
-                ignore_subscribe_messages=ignore_subscribe_messages, timeout=timeout
-            )
+            # Use .get(): migration-driven cleanup in the sunsubscribe branch
+            # below and reset() both remove entries from node_pubsub_mapping,
+            # so a caller polling with target_node may race the cleanup. Match
+            # the async counterpart's None-handling rather than raising
+            # KeyError. None pubsub falls through to "no message available".
+            pubsub = self.node_pubsub_mapping.get(target_node.name)
+            if pubsub is not None:
+                # Don't pass ignore_subscribe_messages here - let get_sharded_message
+                # handle the filtering after processing subscription state changes
+                message = pubsub.get_message(
+                    ignore_subscribe_messages=False, timeout=timeout
+                )
+            else:
+                message = None
         else:
-            message = self._sharded_message_generator()
+            pubsub, message = self._sharded_message_generator(timeout=timeout)
         if message is None:
             return None
-        elif str_if_bytes(message["type"]) == "sunsubscribe":
-            if message["channel"] in self.pending_unsubscribe_shard_channels:
-                self.pending_unsubscribe_shard_channels.remove(message["channel"])
-                self.shard_channels.pop(message["channel"], None)
-                node = self.cluster.get_node_from_key(message["channel"])
-                if self.node_pubsub_mapping[node.name].subscribed is False:
-                    self.node_pubsub_mapping.pop(node.name)
-        if not self.channels and not self.patterns and not self.shard_channels:
-            # There are no subscriptions anymore, set subscribed_event flag
-            # to false
-            self.subscribed_event.clear()
-        if self.ignore_subscribe_messages or ignore_subscribe_messages:
-            return None
+        # Only sunsubscribe mutates cluster-level shard state; bypassing the
+        # lock on the data-message hot path keeps smessage delivery from
+        # competing with the reconciliation worker for _shard_state_lock.
+        if str_if_bytes(message["type"]) == "sunsubscribe":
+            # Serialize state mutation against reinitialize_shard_subscriptions
+            # (worker thread). The blocking get_message above intentionally
+            # runs outside the lock so reconciliation is not stalled by long
+            # polls.
+            with self._shard_state_lock:
+                if message["channel"] in self.pending_unsubscribe_shard_channels:
+                    # User-initiated sunsubscribe: drop from cluster-level tracking.
+                    self.pending_unsubscribe_shard_channels.remove(message["channel"])
+                    self.shard_channels.pop(message["channel"], None)
+                    self._shard_channel_to_node.pop(message["channel"], None)
+                # Drop the per-node pubsub that delivered the confirmation once
+                # it no longer holds any shard subscriptions, regardless of
+                # whether the sunsubscribe was user-initiated or driven by
+                # slot-migration reconciliation (_migrate_shard_channel, which
+                # intentionally does not add the channel to
+                # pending_unsubscribe_shard_channels). This releases the
+                # dedicated connection that would otherwise linger.
+                # Identifying the receiving pubsub directly (rather than via
+                # the cluster's current slot map) is required after slot
+                # migration, where the channel's owner is no longer the node
+                # that received our original SSUBSCRIBE.
+                if pubsub is not None and not pubsub.subscribed:
+                    name = self._find_node_name_for_pubsub(pubsub)
+                    if name is not None:
+                        try:
+                            pubsub.reset()
+                        except Exception:
+                            pass
+                        self.node_pubsub_mapping.pop(name, None)
+                # Mirror PubSub.handle_message: the empty-check belongs in the
+                # unsubscribe branch since that is the only path that can
+                # reduce shard_channels here.
+                if not self.channels and not self.patterns and not self.shard_channels:
+                    self.subscribed_event.clear()
+        # Only suppress subscribe/unsubscribe messages, not data messages (smessage)
+        if str_if_bytes(message["type"]) in ("ssubscribe", "sunsubscribe"):
+            if self.ignore_subscribe_messages or ignore_subscribe_messages:
+                return None
         return message
 
-    def ssubscribe(self, *args, **kwargs):
-        if args:
-            args = list_or_args(args[0], args[1:])
-        s_channels = dict.fromkeys(args)
-        s_channels.update(kwargs)
-        for s_channel, handler in s_channels.items():
-            node = self.cluster.get_node_from_key(s_channel)
-            pubsub = self._get_node_pubsub(node)
-            if handler:
-                pubsub.ssubscribe(**{s_channel: handler})
-            else:
-                pubsub.ssubscribe(s_channel)
-            self.shard_channels.update(pubsub.shard_channels)
-            self.pending_unsubscribe_shard_channels.difference_update(
-                self._normalize_keys({s_channel: None})
-            )
-            if pubsub.subscribed and not self.subscribed:
-                self.subscribed_event.set()
-                self.health_check_response_counter = 0
+    def ssubscribe(
+        self, *args: ChannelT | Subscription, **kwargs: PubSubHandler
+    ) -> None:
+        """
+        Subscribe to shard channels.
+
+        Channels supplied as keyword arguments expect a channel name as the key
+        and a callable as the value. ``Subscription`` objects can also be
+        supplied positionally with an optional handler.
+        """
+        s_channels = parse_pubsub_subscriptions(args, kwargs)
+        # Serialize against reinitialize_shard_subscriptions (worker thread)
+        # so the reverse index, shard_channels, and node_pubsub_mapping are
+        # not mutated concurrently.
+        with self._shard_state_lock:
+            for s_channel, handler in s_channels.items():
+                node = self.cluster.get_node_from_key(s_channel)
+                if not node:
+                    continue
+                # Lazy re-route: if this channel is already tracked against a
+                # different node (e.g. after a slot migration), migrate it now
+                # so the caller's intent is applied on the current owner.
+                normalized_key = next(iter(self._normalize_keys({s_channel: None})))
+                old_name = self._shard_channel_to_node.get(normalized_key)
+                if old_name and old_name != node.name:
+                    # Match PubSub.ssubscribe() dict.update() semantics: the
+                    # caller's newly supplied handler (including None) always
+                    # overrides any previously registered handler.
+                    self._migrate_shard_channel(
+                        normalized_key,
+                        handler,
+                        old_name,
+                        node,
+                    )
+                    continue
+                pubsub = self._get_node_pubsub(node)
+                if handler:
+                    pubsub.ssubscribe(Subscription(s_channel, handler))
+                else:
+                    pubsub.ssubscribe(s_channel)
+                self.shard_channels.update(pubsub.shard_channels)
+                self._shard_channel_to_node[normalized_key] = node.name
+                self.pending_unsubscribe_shard_channels.difference_update(
+                    self._normalize_keys({s_channel: None})
+                )
+                if pubsub.subscribed and not self.subscribed:
+                    self.subscribed_event.set()
+                    self.health_check_response_counter = 0
 
     def sunsubscribe(self, *args):
         if args:
             args = list_or_args(args[0], args[1:])
         else:
-            args = self.shard_channels
+            args = list(self.shard_channels)
 
-        for s_channel in args:
-            node = self.cluster.get_node_from_key(s_channel)
-            p = self._get_node_pubsub(node)
-            p.sunsubscribe(s_channel)
-            self.pending_unsubscribe_shard_channels.update(
-                p.pending_unsubscribe_shard_channels
+        # Serialize against reinitialize_shard_subscriptions: the reverse
+        # index and node_pubsub_mapping must not change between the lookup
+        # and the per-node sunsubscribe call below.
+        with self._shard_state_lock:
+            for s_channel in args:
+                normalized_key = next(iter(self._normalize_keys({s_channel: None})))
+                # Route via the reverse index so we unsubscribe on the node
+                # that actually holds the subscription. After a slot migration
+                # the cluster's current owner may no longer be that node.
+                name = self._shard_channel_to_node.get(normalized_key)
+                if name and name in self.node_pubsub_mapping:
+                    p = self.node_pubsub_mapping[name]
+                else:
+                    node = self.cluster.get_node_from_key(s_channel)
+                    if not node or node.name not in self.node_pubsub_mapping:
+                        continue
+                    p = self.node_pubsub_mapping[node.name]
+                p.sunsubscribe(s_channel)
+                self.pending_unsubscribe_shard_channels.update(
+                    p.pending_unsubscribe_shard_channels
+                )
+
+    def reinitialize_shard_subscriptions(self):
+        """
+        Reconcile per-node shard subscriptions against the cluster's current
+        slot ownership map. For each tracked shard channel whose owning node
+        has changed (e.g. after CLUSTER SETSLOT / failover), sunsubscribe on
+        the old node's pubsub and ssubscribe on the new owner's pubsub,
+        preserving any registered handler.
+        """
+        uncovered: list = []
+        made_progress = False
+        first_migrate_error: Optional[BaseException] = None
+        with self._shard_state_lock:
+            for channel, handler in list(self.shard_channels.items()):
+                try:
+                    new_node = self.cluster.get_node_from_key(channel)
+                except SlotNotCoveredError:
+                    # Slot is transiently uncovered (mid-migration / partial
+                    # topology refresh). Defer this channel so coverable
+                    # siblings still reconcile this pass; we surface the
+                    # error below so the caller (and logs) know not every
+                    # channel was reconciled. Retry happens on the next
+                    # slots-cache change notification.
+                    uncovered.append(channel)
+                    continue
+                old_name = self._shard_channel_to_node.get(channel)
+                if old_name == new_node.name:
+                    continue
+                try:
+                    self._migrate_shard_channel(channel, handler, old_name, new_node)
+                    made_progress = True
+                except (ConnectionError, TimeoutError, OSError) as e:
+                    # Transient connectivity error while subscribing on the
+                    # new owner (or unsubscribing on the old owner if its
+                    # handler chose to re-raise). Do not abort reconciliation
+                    # for sibling channels: _shard_channel_to_node was not
+                    # advanced for this channel, so the next slots-cache
+                    # change notification will retry it.
+                    logger.warning(
+                        "shard channel %r migration deferred: %s: %s",
+                        channel,
+                        type(e).__name__,
+                        e,
+                    )
+                    if first_migrate_error is None:
+                        first_migrate_error = e
+                    continue
+            # Garbage-collect per-node pubsubs that no longer hold any
+            # subscription so their connections are released.
+            for name, pubsub in list(self.node_pubsub_mapping.items()):
+                if not pubsub.subscribed:
+                    try:
+                        pubsub.reset()
+                    except Exception:
+                        pass
+                    self.node_pubsub_mapping.pop(name, None)
+        if uncovered:
+            # Surface the uncovered channels so the caller (and observer
+            # notification path) knows reconciliation was incomplete. All
+            # coverable siblings have already been migrated above.
+            raise SlotNotCoveredError(
+                f"{len(uncovered)} shard channel(s) left unreconciled; "
+                f"slot(s) not covered by the cluster: {uncovered!r}"
             )
+        if first_migrate_error is not None and not made_progress:
+            # Every migration attempted in this pass failed transiently and
+            # nothing else made progress. Re-raise the first caught error
+            # (typically the root cause; later failures are often downstream
+            # symptoms of the same unreachable node) so the worker's done-
+            # callback surfaces a single representative failure through the
+            # same logger channel used for SlotNotCoveredError. Per-channel
+            # WARNINGs above preserve the full forensic detail.
+            raise first_migrate_error
+
+    def _migrate_shard_channel(self, channel, handler, old_name, new_node):
+        # Detach from the old per-node pubsub, best-effort: the old node may
+        # already be unreachable during migration / failover.
+        if old_name and old_name in self.node_pubsub_mapping:
+            old_pubsub = self.node_pubsub_mapping[old_name]
+            try:
+                old_pubsub.sunsubscribe(channel)
+            except (ConnectionError, TimeoutError, OSError):
+                # redis-py's Connection has already called ``disconnect()``
+                # before raising (see Connection.read_response /
+                # send_packed_command with ``disconnect_on_error=True``),
+                # so ``old_pubsub``'s dedicated socket is gone. Two cases:
+                #
+                # 1. The old node is no longer in the cluster topology
+                #    (e.g. removed by failover / topology refresh): no
+                #    reconnect target exists, so ``old_pubsub.subscribed``
+                #    would stay True forever and the end-of-pass GC block
+                #    would skip it. Drop it eagerly so the round-robin
+                #    generator does not keep yielding a dead pubsub that
+                #    produces periodic errors from ``get_sharded_message``.
+                # 2. The old node is still known (transiently slow /
+                #    unreachable): ``PubSub._execute`` auto-reconnects and
+                #    ``on_connect`` re-subscribes to remaining channels,
+                #    so other subscriptions on the same pubsub recover
+                #    naturally. Leave it alone.
+                if self.cluster.get_node(node_name=old_name) is None:
+                    try:
+                        old_pubsub.reset()
+                    except Exception:
+                        pass
+                    self.node_pubsub_mapping.pop(old_name, None)
+        # Attach to the new per-node pubsub, preserving the handler. Decode to
+        # a text key only when we must pass it as a kwarg (handler present).
+        new_pubsub = self._get_node_pubsub(new_node)
+        if handler:
+            new_pubsub.ssubscribe(Subscription(channel, handler))
+        else:
+            new_pubsub.ssubscribe(channel)
+        self.shard_channels.update(new_pubsub.shard_channels)
+        normalized_key = next(iter(self._normalize_keys({channel: None})))
+        self._shard_channel_to_node[normalized_key] = new_node.name
+        self.pending_unsubscribe_shard_channels.difference_update(
+            self._normalize_keys({channel: None})
+        )
+        if new_pubsub.subscribed and not self.subscribed:
+            self.subscribed_event.set()
+            self.health_check_response_counter = 0
+
+    def on_slots_changed(self):
+        # Observer hook invoked by NodesManager after a slots-cache refresh.
+        # Schedule reconciliation on a dedicated worker thread so the caller
+        # (typically MovedError handling in _execute_command or the topology
+        # refresh thread in initialize()) is not blocked on the network I/O
+        # performed by reinitialize_shard_subscriptions. Mirrors the async
+        # path's asyncio.create_task model. No-op when there are no shard
+        # subscriptions to reconcile.
+        if not self.shard_channels:
+            return
+        # Serialize lazy executor creation and submission against concurrent
+        # on_slots_changed calls (EventDispatcher releases its lock before
+        # invoking listeners, so two MovedError-handling threads can land
+        # here at once) and against reset() which tears the executor down.
+        # Without this, two threads could each create a ThreadPoolExecutor
+        # and one would be orphaned (leaking its worker thread); a reset()
+        # interleaved between create and submit() could also raise
+        # RuntimeError("cannot schedule new futures after shutdown").
+        with self._shard_state_lock:
+            if self._reconcile_executor is None:
+                self._reconcile_executor = ThreadPoolExecutor(
+                    max_workers=1,
+                    thread_name_prefix="redis-cluster-pubsub-reconcile",
+                )
+            future = self._reconcile_executor.submit(
+                self.reinitialize_shard_subscriptions
+            )
+            self._reconcile_futures.add(future)
+        future.add_done_callback(self._discard_reconcile_future)
+        # Consume the future's exception (if any) so it is not silently lost.
+        # reinitialize_shard_subscriptions surfaces SlotNotCoveredError when
+        # a slot is still transiently uncovered; route it through the same
+        # logger channel as the async path for consistent observability.
+        future.add_done_callback(self._log_reconcile_future_exception)
+
+    def _discard_reconcile_future(self, future: "Future") -> None:
+        # Done-callback fires on the worker thread. Take _shard_state_lock so
+        # the discard observes the same mutual-exclusion discipline as the
+        # add() / clear() sites; without it the set mutation is correct only
+        # because of CPython's GIL and would race under free-threaded builds.
+        with self._shard_state_lock:
+            self._reconcile_futures.discard(future)
+
+    @staticmethod
+    def _log_reconcile_future_exception(future: "Future") -> None:
+        if future.cancelled():
+            return
+        exc = future.exception()
+        if exc is not None:
+            logger.error(
+                "shard subscription reconciliation failed: %r", exc, exc_info=exc
+            )
+
+    def reset(self) -> None:
+        # Hold _shard_state_lock across the entire teardown so it observes
+        # the same mutual-exclusion discipline as ssubscribe / sunsubscribe /
+        # get_sharded_message / reinitialize_shard_subscriptions, which all
+        # mutate shard_channels, _shard_channel_to_node, and
+        # node_pubsub_mapping under this lock. Without it, super().reset()
+        # rebinds shard_channels and pending_unsubscribe_shard_channels in
+        # parallel with a concurrent user-thread mutation, silently dropping
+        # subscription intent. cancel_futures drops queued reconciliation
+        # work; the currently-running task (if any) is already serialized
+        # against us by this same lock - shutdown(wait=False) avoids waiting
+        # on the worker thread's join, not on its critical section.
+        with self._shard_state_lock:
+            if self._reconcile_executor is not None:
+                self._reconcile_executor.shutdown(wait=False, cancel_futures=True)
+                self._reconcile_executor = None
+            self._reconcile_futures.clear()
+            # Tear down per-node pubsubs (parity with async aclose) so they
+            # don't leak their dedicated connections and don't replay stale
+            # shard_channels via PubSub.on_connect on a subsequent reconnect.
+            # Errors are swallowed because reset() is also a fallback path
+            # from __del__; we cannot let one buggy per-node pubsub mask the
+            # rest of the teardown.
+            for pubsub in self.node_pubsub_mapping.values():
+                try:
+                    pubsub.reset()
+                except Exception:
+                    pass
+            # Drop the now-dead per-node pubsubs from the mapping so the
+            # round-robin in _pubsubs_generator / _sharded_message_generator
+            # cannot yield them between teardown and re-subscription.
+            self.node_pubsub_mapping.clear()
+            # _pubsubs_generator captures node_pubsub_mapping.values() into
+            # a local list inside ``yield from``; clearing the mapping does
+            # not reach references already held by that captured snapshot,
+            # so a generator suspended mid-yield-from would still surface
+            # the now-reset() per-node pubsubs after re-subscription.
+            # Recreate it to drop the captured list. type(self) bypasses
+            # the instance-level self-shadow established at __init__
+            # (self._pubsubs_generator = self._pubsubs_generator()).
+            self._pubsubs_generator = type(self)._pubsubs_generator(self)
+            super().reset()
+            self._shard_channel_to_node = {}
 
     def get_redis_connection(self):
         """
@@ -2105,7 +3507,8 @@ class ClusterPubSub(PubSub):
         if self.connection:
             self.connection.disconnect()
         for pubsub in self.node_pubsub_mapping.values():
-            pubsub.connection.disconnect()
+            if pubsub.connection:
+                pubsub.connection.disconnect()
 
 
 class ClusterPipeline(RedisCluster):
@@ -2142,16 +3545,23 @@ class ClusterPipeline(RedisCluster):
         startup_nodes: Optional[List["ClusterNode"]] = None,
         read_from_replicas: bool = False,
         load_balancing_strategy: Optional[LoadBalancingStrategy] = None,
-        cluster_error_retry_attempts: int = 3,
+        cluster_error_retry_attempts: int = DEFAULT_RETRY_COUNT,
         reinitialize_steps: int = 5,
         retry: Optional[Retry] = None,
         lock=None,
         transaction=False,
+        policy_resolver: PolicyResolver = StaticPolicyResolver(),
+        event_dispatcher: Optional["EventDispatcher"] = None,
         **kwargs,
     ):
         """ """
         self.command_stack = []
         self.nodes_manager = nodes_manager
+        # Share the parent cluster's HIMPORT registry (held on the NodesManager and
+        # referenced by every node pool). The inherited himport_prepare/discard/
+        # discard_all mutate this one object, so a fieldset declared on the pipeline is
+        # visible to the batched himport_set pre-flight exactly as on the parent client.
+        self._himport_registry = nodes_manager.himport_registry
         self.commands_parser = commands_parser
         self.refresh_table_asap = False
         self.result_callbacks = (
@@ -2168,7 +3578,9 @@ class ClusterPipeline(RedisCluster):
             self.retry = retry
         else:
             self.retry = Retry(
-                backoff=ExponentialWithJitterBackoff(base=1, cap=10),
+                backoff=ExponentialWithJitterBackoff(
+                    base=DEFAULT_RETRY_BASE, cap=DEFAULT_RETRY_CAP
+                ),
                 retries=cluster_error_retry_attempts,
             )
 
@@ -2184,6 +3596,42 @@ class ClusterPipeline(RedisCluster):
         self._execution_strategy: ExecutionStrategy = (
             PipelineStrategy(self) if not transaction else TransactionStrategy(self)
         )
+
+        # For backward compatibility, mapping from existing policies to new one
+        self._command_flags_mapping: dict[str, Union[RequestPolicy, ResponsePolicy]] = {
+            self.__class__.RANDOM: RequestPolicy.DEFAULT_KEYLESS,
+            self.__class__.PRIMARIES: RequestPolicy.ALL_SHARDS,
+            self.__class__.ALL_NODES: RequestPolicy.ALL_NODES,
+            self.__class__.REPLICAS: RequestPolicy.ALL_REPLICAS,
+            self.__class__.DEFAULT_NODE: RequestPolicy.DEFAULT_NODE,
+            SLOT_ID: RequestPolicy.DEFAULT_KEYED,
+        }
+
+        self._policies_callback_mapping: dict[
+            Union[RequestPolicy, ResponsePolicy], Callable
+        ] = {
+            RequestPolicy.DEFAULT_KEYLESS: lambda command_name: [
+                self.get_random_primary_or_all_nodes(command_name)
+            ],
+            RequestPolicy.DEFAULT_KEYED: lambda command,
+            *args: self.get_nodes_from_slot(command, *args),
+            RequestPolicy.DEFAULT_NODE: lambda: [self.get_default_node()],
+            RequestPolicy.ALL_SHARDS: self.get_primaries,
+            RequestPolicy.ALL_NODES: self.get_nodes,
+            RequestPolicy.ALL_REPLICAS: self.get_replicas,
+            RequestPolicy.MULTI_SHARD: lambda *args,
+            **kwargs: self._split_multi_shard_command(*args, **kwargs),
+            RequestPolicy.SPECIAL: self.get_special_nodes,
+            ResponsePolicy.DEFAULT_KEYLESS: lambda res: res,
+            ResponsePolicy.DEFAULT_KEYED: lambda res: res,
+        }
+
+        self._policy_resolver = policy_resolver
+
+        if event_dispatcher is None:
+            self._event_dispatcher = EventDispatcher()
+        else:
+            self._event_dispatcher = event_dispatcher
 
     def __repr__(self):
         """ """
@@ -2343,6 +3791,7 @@ PIPELINE_BLOCKED_COMMANDS = (
     "MGET NONATOMIC",
     "MOVE",
     "MSET",
+    "MSETEX",
     "MSET NONATOMIC",
     "MSETNX",
     "PFCOUNT",
@@ -2405,12 +3854,15 @@ class PipelineCommand:
         self.result = None
         self.node = None
         self.asking = False
+        self.command_policies: Optional[CommandPolicies] = None
 
 
 class NodeCommands:
     """ """
 
-    def __init__(self, parse_response, connection_pool, connection):
+    def __init__(
+        self, parse_response, connection_pool: ConnectionPool, connection: Connection
+    ):
         """ """
         self.parse_response = parse_response
         self.connection_pool = connection_pool
@@ -2626,6 +4078,10 @@ class AbstractStrategy(ExecutionStrategy):
         )
         return self._pipe
 
+    def _himport_prepare_pipeline(self, redis_node, conn, commands):
+        """Delegate to the shared sync HIMPORT executor."""
+        _himport_exec.prepare_pipeline(redis_node, conn, [args for args, _ in commands])
+
     @abstractmethod
     def execute(self, raise_on_error: bool = True) -> List[Any]:
         pass
@@ -2677,7 +4133,7 @@ class PipelineStrategy(AbstractStrategy):
     def execute_command(self, *args, **kwargs):
         return self.pipeline_execute_command(*args, **kwargs)
 
-    def _raise_first_error(self, stack):
+    def _raise_first_error(self, stack, start_time):
         """
         Raise the first exception on the stack
         """
@@ -2685,6 +4141,13 @@ class PipelineStrategy(AbstractStrategy):
             r = c.result
             if isinstance(r, Exception):
                 self.annotate_exception(r, c.position + 1, c.args)
+
+                record_operation_duration(
+                    command_name="PIPELINE",
+                    duration_seconds=time.monotonic() - start_time,
+                    error=r,
+                )
+
                 raise r
 
     def execute(self, raise_on_error: bool = True) -> List[Any]:
@@ -2711,12 +4174,12 @@ class PipelineStrategy(AbstractStrategy):
 
         If one of the retryable exceptions has been thrown we assume that:
          - connection_pool was disconnected
-         - connection_pool was reseted
-         - refereh_table_asap set to True
+         - connection_pool was reset
+         - refresh_table_asap set to True
 
         It will try the number of times specified by
         the retries in config option "self.retry"
-        which defaults to 3 unless manually configured.
+        which defaults to 10 unless manually configured.
 
         If it reaches the number of times, the command will
         raises ClusterDownException.
@@ -2757,13 +4220,21 @@ class PipelineStrategy(AbstractStrategy):
         attempt = sorted(stack, key=lambda x: x.position)
         is_default_node = False
         # build a list of node objects based on node names we need to
-        nodes = {}
+        nodes: dict[str, NodeCommands] = {}
+        # node objects keyed by name, so each node's connection can be pre-flighted
+        # for HIMPORT SET (PREPARE) before the batched write.
+        node_objs: dict = {}
+        nodes_written = 0
+        nodes_read = 0
 
-        # as we move through each command that still needs to be processed,
-        # we figure out the slot number that command maps to, then from
-        # the slot determine the node.
-        for c in attempt:
-            while True:
+        try:
+            # as we move through each command that still needs to be processed,
+            # we figure out the slot number that command maps to, then from
+            # the slot determine the node.
+            for c in attempt:
+                command_policies = self._pipe._policy_resolver.resolve(
+                    c.args[0].lower()
+                )
                 # refer to our internal node -> slot table that
                 # tells us where a given command should route to.
                 # (it might be possible we have a cached node that no longer
@@ -2771,14 +4242,55 @@ class PipelineStrategy(AbstractStrategy):
                 passed_targets = c.options.pop("target_nodes", None)
                 if passed_targets and not self._is_nodes_flag(passed_targets):
                     target_nodes = self._parse_target_nodes(passed_targets)
+
+                    if not command_policies:
+                        command_policies = CommandPolicies()
                 else:
+                    if not command_policies:
+                        command = c.args[0].upper()
+                        if (
+                            len(c.args) >= 2
+                            and f"{c.args[0]} {c.args[1]}".upper()
+                            in self._pipe.command_flags
+                        ):
+                            command = f"{c.args[0]} {c.args[1]}".upper()
+
+                        # We only could resolve key properties if command is not
+                        # in a list of pre-defined request policies
+                        command_flag = self.command_flags.get(command)
+                        if not command_flag:
+                            # Fallback to default policy
+                            if not self._pipe.get_default_node():
+                                keys = None
+                            else:
+                                keys = self._pipe._get_command_keys(*c.args)
+                            if not keys or len(keys) == 0:
+                                command_policies = CommandPolicies()
+                            else:
+                                command_policies = CommandPolicies(
+                                    request_policy=RequestPolicy.DEFAULT_KEYED,
+                                    response_policy=ResponsePolicy.DEFAULT_KEYED,
+                                )
+                        else:
+                            if command_flag in self._pipe._command_flags_mapping:
+                                command_policies = CommandPolicies(
+                                    request_policy=self._pipe._command_flags_mapping[
+                                        command_flag
+                                    ]
+                                )
+                            else:
+                                command_policies = CommandPolicies()
+
                     target_nodes = self._determine_nodes(
-                        *c.args, node_flag=passed_targets
+                        *c.args,
+                        request_policy=command_policies.request_policy,
+                        node_flag=passed_targets,
                     )
                     if not target_nodes:
                         raise RedisClusterException(
                             f"No targets were found to execute {c.args} command on"
                         )
+                c.command_policies = command_policies
                 if len(target_nodes) > 1:
                     raise RedisClusterException(
                         f"Too many targets for command {c.args}"
@@ -2797,6 +4309,7 @@ class PipelineStrategy(AbstractStrategy):
                     try:
                         connection = get_connection(redis_node)
                     except (ConnectionError, TimeoutError):
+                        # Release any connections we've already acquired before clearing nodes
                         for n in nodes.values():
                             n.connection_pool.release(n.connection)
                         # Connection retries are being handled in the node's
@@ -2804,50 +4317,78 @@ class PipelineStrategy(AbstractStrategy):
                         self._nodes_manager.initialize()
                         if is_default_node:
                             self._pipe.replace_default_node()
+                        nodes = {}
                         raise
                     nodes[node_name] = NodeCommands(
                         redis_node.parse_response,
                         redis_node.connection_pool,
                         connection,
                     )
+                    node_objs[node_name] = node
                 nodes[node_name].append(c)
-                break
 
-        # send the commands in sequence.
-        # we  write to all the open sockets for each node first,
-        # before reading anything
-        # this allows us to flush all the requests out across the
-        # network
-        # so that we can read them from different sockets as they come back.
-        # we dont' multiplex on the sockets as they come available,
-        # but that shouldn't make too much difference.
-        try:
+            # send the commands in sequence.
+            # we  write to all the open sockets for each node first,
+            # before reading anything
+            # this allows us to flush all the requests out across the
+            # network
+            # so that we can read them from different sockets as they come back.
+            # we don't multiplex on the sockets as they come available,
+            # but that shouldn't make too much difference.
+
+            # HIMPORT SETs in the batch need their fieldsets prepared on each
+            # node's connection first; the packed write bypasses the per-command
+            # lazy prepare, so pre-flight the PREPARE (once per node) here.
+            for node_name, n in nodes.items():
+                redis_node = self._pipe.get_redis_connection(node_objs[node_name])
+                self._himport_prepare_pipeline(
+                    redis_node, n.connection, [(c.args, c.options) for c in n.commands]
+                )
+
+            # Start timing for observability
+            start_time = time.monotonic()
+
             node_commands = nodes.values()
             for n in node_commands:
+                nodes_written += 1
                 n.write()
 
             for n in node_commands:
                 n.read()
+
+                # Find the first error in this node's commands, if any
+                node_error = None
+                for cmd in n.commands:
+                    if isinstance(cmd.result, Exception):
+                        node_error = cmd.result
+                        break
+
+                record_operation_duration(
+                    command_name="PIPELINE",
+                    duration_seconds=time.monotonic() - start_time,
+                    server_address=n.connection.host,
+                    server_port=n.connection.port,
+                    db_namespace=str(n.connection.db),
+                    error=node_error,
+                )
+                nodes_read += 1
         finally:
-            # release all of the redis connections we allocated earlier
+            # release all the redis connections we allocated earlier
             # back into the connection pool.
-            # we used to do this step as part of a try/finally block,
-            # but it is really dangerous to
-            # release connections back into the pool if for some
-            # reason the socket has data still left in it
-            # from a previous operation. The write and
-            # read operations already have try/catch around them for
-            # all known types of errors including connection
-            # and socket level errors.
-            # So if we hit an exception, something really bad
-            # happened and putting any oF
-            # these connections back into the pool is a very bad idea.
-            # the socket might have unread buffer still sitting in it,
-            # and then the next time we read from it we pass the
-            # buffered result back from a previous command and
-            # every single request after to that connection will always get
-            # a mismatched result.
-            for n in nodes.values():
+            # if the connection is dirty (that is: we've written
+            # commands to it, but haven't read the responses), we need
+            # to close the connection before returning it to the pool.
+            # otherwise, the next caller to use this connection will
+            # read the response from _this_ request, not its own request.
+            # disconnecting discards the dirty state & forces the next
+            # caller to reconnect.
+            # NOTE: dicts have a consistent ordering; we're iterating
+            # through nodes.values() in the same order as we are when
+            # reading / writing to the connections above, which is critical
+            # for how we're using the nodes_written/nodes_read offsets.
+            for i, n in enumerate(nodes.values()):
+                if i < nodes_written and i >= nodes_read:
+                    n.connection.disconnect()
                 n.connection_pool.release(n.connection)
 
         # if the response isn't an exception it is a
@@ -2903,13 +4444,17 @@ class PipelineStrategy(AbstractStrategy):
             if c.args[0] in self._pipe.cluster_response_callbacks:
                 # Remove keys entry, it needs only for cache.
                 c.options.pop("keys", None)
-                c.result = self._pipe.cluster_response_callbacks[c.args[0]](
-                    c.result, **c.options
+                c.result = self._pipe._policies_callback_mapping[
+                    c.command_policies.response_policy
+                ](
+                    self._pipe.cluster_response_callbacks[c.args[0]](
+                        c.result, **c.options
+                    )
                 )
             response.append(c.result)
 
         if raise_on_error:
-            self._raise_first_error(stack)
+            self._raise_first_error(stack, start_time)
 
         return response
 
@@ -2936,7 +4481,9 @@ class PipelineStrategy(AbstractStrategy):
             )
         return nodes
 
-    def _determine_nodes(self, *args, **kwargs) -> List["ClusterNode"]:
+    def _determine_nodes(
+        self, *args, request_policy: RequestPolicy, **kwargs
+    ) -> List["ClusterNode"]:
         # Determine which nodes should be executed the command on.
         # Returns a list of target nodes.
         command = args[0].upper()
@@ -2953,34 +4500,25 @@ class PipelineStrategy(AbstractStrategy):
         else:
             # get the nodes group for this command if it was predefined
             command_flag = self._pipe.command_flags.get(command)
-        if command_flag == self._pipe.RANDOM:
-            # return a random node
-            return [self._pipe.get_random_node()]
-        elif command_flag == self._pipe.PRIMARIES:
-            # return all primaries
-            return self._pipe.get_primaries()
-        elif command_flag == self._pipe.REPLICAS:
-            # return all replicas
-            return self._pipe.get_replicas()
-        elif command_flag == self._pipe.ALL_NODES:
-            # return all nodes
-            return self._pipe.get_nodes()
-        elif command_flag == self._pipe.DEFAULT_NODE:
-            # return the cluster's default node
-            return [self._nodes_manager.default_node]
-        elif command in self._pipe.SEARCH_COMMANDS[0]:
-            return [self._nodes_manager.default_node]
+
+        if command_flag in self._pipe._command_flags_mapping:
+            request_policy = self._pipe._command_flags_mapping[command_flag]
+
+        policy_callback = self._pipe._policies_callback_mapping[request_policy]
+
+        if request_policy == RequestPolicy.DEFAULT_KEYED:
+            nodes = policy_callback(command, *args)
+        elif request_policy == RequestPolicy.MULTI_SHARD:
+            nodes = policy_callback(*args, **kwargs)
+        elif request_policy == RequestPolicy.DEFAULT_KEYLESS:
+            nodes = policy_callback(args[0])
         else:
-            # get the node that holds the key's slot
-            slot = self._pipe.determine_slot(*args)
-            node = self._nodes_manager.get_node_from_slot(
-                slot,
-                self._pipe.read_from_replicas and command in READ_COMMANDS,
-                self._pipe.load_balancing_strategy
-                if command in READ_COMMANDS
-                else None,
-            )
-            return [node]
+            nodes = policy_callback()
+
+        if args[0].lower() == "ft.aggregate":
+            self._aggregate_nodes = nodes
+
+        return nodes
 
     def multi(self):
         raise RedisClusterException(
@@ -3117,13 +4655,42 @@ class TransactionStrategy(AbstractStrategy):
         return self._retry.call_with_retry(
             lambda: self._get_connection_and_send_command(*args, **options),
             self._reinitialize_on_error,
+            with_failure_count=True,
         )
 
     def _get_connection_and_send_command(self, *args, **options):
         redis_node, connection = self._get_client_and_connection_for_transaction()
-        return self._send_command_parse_response(
-            connection, redis_node, args[0], *args, **options
-        )
+
+        # Start timing for observability
+        start_time = time.monotonic()
+
+        try:
+            response = self._send_command_parse_response(
+                connection, redis_node, args[0], *args, **options
+            )
+
+            record_operation_duration(
+                command_name=args[0],
+                duration_seconds=time.monotonic() - start_time,
+                server_address=connection.host,
+                server_port=connection.port,
+                db_namespace=str(connection.db),
+            )
+
+            return response
+        except Exception as e:
+            if connection:
+                # this is used to report the metrics based on host and port info
+                e.connection = connection
+            record_operation_duration(
+                command_name=args[0],
+                duration_seconds=time.monotonic() - start_time,
+                server_address=connection.host,
+                server_port=connection.port,
+                db_namespace=str(connection.db),
+                error=e,
+            )
+            raise
 
     def _send_command_parse_response(
         self, conn, redis_node: Redis, command_name, *args, **options
@@ -3132,14 +4699,41 @@ class TransactionStrategy(AbstractStrategy):
         Send a command and parse the response
         """
 
-        conn.send_command(*args)
-        output = redis_node.parse_response(conn, command_name, **options)
+        # HIMPORT SET's wire form depends on per-connection state: the fieldset
+        # must be PREPAREd on this connection first, and any fieldset discarded
+        # since this connection last reconciled must be dropped. The
+        # immediate/watched path (commands issued after WATCH, before MULTI)
+        # would otherwise send a bare HIMPORT SET and fail with "no such
+        # fieldset". Route it through the node's HIMPORT executor, the same way
+        # the normal cluster path, the batched MULTI/EXEC path, and standalone
+        # watched pipelines all do.
+        himport_set = parse_himport_set_args(args)
+        if himport_set is not None:
+            # HIMPORT SET in the joined or split raw form; operands at the right
+            # offsets. Too few operands returns None and falls through to the bare
+            # send so the server returns its arity error.
+            key, fieldset_name, values = himport_set
+            output = redis_node._himport_execute_set(conn, key, fieldset_name, values)
+        else:
+            conn.send_command(*args)
+            output = redis_node.parse_response(conn, command_name, **options)
 
         if command_name in self.UNWATCH_COMMANDS:
             self._watching = False
         return output
 
-    def _reinitialize_on_error(self, error):
+    def _reinitialize_on_error(self, error, failure_count):
+        if hasattr(error, "connection"):
+            record_error_count(
+                server_address=error.connection.host,
+                server_port=error.connection.port,
+                network_peer_address=error.connection.host,
+                network_peer_port=error.connection.port,
+                error_type=error,
+                retry_attempts=failure_count,
+                is_internal=True,
+            )
+
         if self._watching:
             if type(error) in self.SLOT_REDIRECT_ERRORS and self._executing:
                 raise WatchError("Slot rebalancing occurred while watching keys")
@@ -3149,6 +4743,21 @@ class TransactionStrategy(AbstractStrategy):
             or type(error) in self.CONNECTION_ERRORS
         ):
             if self._transaction_connection:
+                if is_debug_log_enabled():
+                    logger.debug(
+                        f"Operation failed, "
+                        f"with connection: {self._transaction_connection}, "
+                        f"details: {self._transaction_connection.extract_connection_details()}",
+                    )
+                # Disconnect and release back to pool
+                self._transaction_connection.disconnect()
+                node = self._nodes_manager.find_connection_owner(
+                    self._transaction_connection
+                )
+                if node and node.redis_connection:
+                    node.redis_connection.connection_pool.release(
+                        self._transaction_connection
+                    )
                 self._transaction_connection = None
 
             self._pipe.reinitialize_counter += 1
@@ -3156,17 +4765,27 @@ class TransactionStrategy(AbstractStrategy):
                 self._nodes_manager.initialize()
                 self.reinitialize_counter = 0
             else:
-                self._nodes_manager.update_moved_exception(error)
+                if isinstance(error, AskError):
+                    self._nodes_manager.move_slot(error)
 
         self._executing = False
 
-    def _raise_first_error(self, responses, stack):
+    def _raise_first_error(self, responses, stack, start_time):
         """
         Raise the first exception on the stack
         """
         for r, cmd in zip(responses, stack):
             if isinstance(r, Exception):
                 self.annotate_exception(r, cmd.position + 1, cmd.args)
+
+                record_operation_duration(
+                    command_name="TRANSACTION",
+                    duration_seconds=time.monotonic() - start_time,
+                    server_address=self._transaction_connection.host,
+                    server_port=self._transaction_connection.port,
+                    db_namespace=str(self._transaction_connection.db),
+                )
+
                 raise r
 
     def execute(self, raise_on_error: bool = True) -> List[Any]:
@@ -3181,7 +4800,10 @@ class TransactionStrategy(AbstractStrategy):
     ):
         return self._retry.call_with_retry(
             lambda: self._execute_transaction(stack, raise_on_error),
-            self._reinitialize_on_error,
+            lambda error, failure_count: self._reinitialize_on_error(
+                error, failure_count
+            ),
+            with_failure_count=True,
         )
 
     def _execute_transaction(
@@ -3196,6 +4818,13 @@ class TransactionStrategy(AbstractStrategy):
 
         redis_node, connection = self._get_client_and_connection_for_transaction()
 
+        # Ensure fieldsets referenced by buffered HIMPORT SETs are prepared on this
+        # node's connection before the MULTI/EXEC block (session state, not
+        # transactional). All keys share one slot here, so it is a single node.
+        self._himport_prepare_pipeline(
+            redis_node, connection, [(c.args, c.options) for c in stack]
+        )
+
         stack = chain(
             [PipelineCommand(("MULTI",))],
             stack,
@@ -3203,6 +4832,10 @@ class TransactionStrategy(AbstractStrategy):
         )
         commands = [c.args for c in stack if EMPTY_RESPONSE not in c.options]
         packed_commands = connection.pack_commands(commands)
+
+        # Start timing for observability
+        start_time = time.monotonic()
+
         connection.send_packed_command(packed_commands)
         errors = []
 
@@ -3247,6 +4880,14 @@ class TransactionStrategy(AbstractStrategy):
 
         self._executing = False
 
+        record_operation_duration(
+            command_name="TRANSACTION",
+            duration_seconds=time.monotonic() - start_time,
+            server_address=connection.host,
+            server_port=connection.port,
+            db_namespace=str(connection.db),
+        )
+
         # EXEC clears any watched keys
         self._watching = False
 
@@ -3270,6 +4911,7 @@ class TransactionStrategy(AbstractStrategy):
             self._raise_first_error(
                 response,
                 self._command_queue,
+                start_time,
             )
 
         # We have to run response callbacks manually
@@ -3291,23 +4933,33 @@ class TransactionStrategy(AbstractStrategy):
         # watching something
         if self._transaction_connection:
             try:
-                # call this manually since our unwatch or
-                # immediate_execute_command methods can call reset()
-                self._transaction_connection.send_command("UNWATCH")
-                self._transaction_connection.read_response()
+                if self._watching:
+                    # call this manually since our unwatch or
+                    # immediate_execute_command methods can call reset()
+                    self._transaction_connection.send_command("UNWATCH")
+                    self._transaction_connection.read_response()
                 # we can safely return the connection to the pool here since we're
                 # sure we're no longer WATCHing anything
                 node = self._nodes_manager.find_connection_owner(
                     self._transaction_connection
                 )
-                node.redis_connection.connection_pool.release(
-                    self._transaction_connection
-                )
+                if node and node.redis_connection:
+                    node.redis_connection.connection_pool.release(
+                        self._transaction_connection
+                    )
                 self._transaction_connection = None
             except self.CONNECTION_ERRORS:
                 # disconnect will also remove any previous WATCHes
                 if self._transaction_connection:
                     self._transaction_connection.disconnect()
+                    node = self._nodes_manager.find_connection_owner(
+                        self._transaction_connection
+                    )
+                    if node and node.redis_connection:
+                        node.redis_connection.connection_pool.release(
+                            self._transaction_connection
+                        )
+                    self._transaction_connection = None
 
         # clean up the other instance attributes
         self._watching = False

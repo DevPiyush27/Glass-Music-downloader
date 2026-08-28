@@ -40,13 +40,18 @@ def download_audio(query, output_dir=None, bitrate="128", callback=None):
         search_target = f"ytsearch1:{search_target} audio"
 
     ydl_opts = {
-        'format': 'bestaudio[ext=m4a]/bestaudio/best',
+        'format': 'ba/b/bestaudio/best',
         'outtmpl': out_tmpl,
         'quiet': True,
         'no_warnings': True,
         'nocheckcertificate': True,
         'writethumbnail': False,
         'noplaylist': True,
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['android', 'ios', 'mweb', 'web']
+            }
+        },
         'progress_hooks': [progress_hook]
     }
 
@@ -71,3 +76,52 @@ def download_audio(query, output_dir=None, bitrate="128", callback=None):
         if callback:
             callback.onError(error_msg)
         return {"success": False, "error": error_msg}
+
+
+def extract_stream_url(query):
+    """
+    Extracts direct audio stream URL and track metadata for in-app playback without downloading.
+    """
+    search_target = query.strip()
+    if not (search_target.startswith("http://") or search_target.startswith("https://")):
+        search_target = f"ytsearch1:{search_target} audio"
+
+    ydl_opts = {
+        'format': 'ba/b/bestaudio/best',
+        'quiet': True,
+        'no_warnings': True,
+        'nocheckcertificate': True,
+        'noplaylist': True,
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['android', 'ios', 'mweb', 'web']
+            }
+        }
+    }
+
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(search_target, download=False)
+            if info and 'entries' in info and len(info['entries']) > 0:
+                info = info['entries'][0]
+
+            if not info:
+                return {"success": False, "error": "No stream format available"}
+
+            stream_url = info.get('url') or ''
+            title = info.get('title', query)
+            artist = info.get('uploader') or info.get('artist') or ''
+            duration = info.get('duration', 0)
+            thumbnail = info.get('thumbnail', '')
+
+            return {
+                "success": True,
+                "url": stream_url,
+                "title": title,
+                "artist": artist,
+                "duration": duration,
+                "thumbnail": thumbnail
+            }
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+

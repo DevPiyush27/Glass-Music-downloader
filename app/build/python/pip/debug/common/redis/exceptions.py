@@ -1,28 +1,53 @@
+from enum import Enum
+
 "Core exceptions raised by the Redis client"
 
 
+class ExceptionType(Enum):
+    NETWORK = "network"
+    TLS = "tls"
+    AUTH = "auth"
+    SERVER = "server"
+
+
 class RedisError(Exception):
-    pass
+    def __init__(self, *args, status_code: str | None = None):
+        super().__init__(*args)
+        self.error_type = ExceptionType.SERVER
+        self.status_code = status_code
+
+    def __repr__(self):
+        return f"{self.error_type.value}:{self.__class__.__name__}"
 
 
 class ConnectionError(RedisError):
-    pass
+    def __init__(self, *args, status_code: str | None = None):
+        super().__init__(*args, status_code=status_code)
+        self.error_type = ExceptionType.NETWORK
 
 
 class TimeoutError(RedisError):
-    pass
+    def __init__(self, *args, status_code: str | None = None):
+        super().__init__(*args, status_code=status_code)
+        self.error_type = ExceptionType.NETWORK
 
 
 class AuthenticationError(ConnectionError):
-    pass
+    def __init__(self, *args, status_code: str | None = None):
+        super().__init__(*args, status_code=status_code)
+        self.error_type = ExceptionType.AUTH
 
 
 class AuthorizationError(ConnectionError):
-    pass
+    def __init__(self, *args, status_code: str | None = None):
+        super().__init__(*args, status_code=status_code)
+        self.error_type = ExceptionType.AUTH
 
 
 class BusyLoadingError(ConnectionError):
-    pass
+    def __init__(self, *args, status_code: str | None = None):
+        super().__init__(*args, status_code=status_code)
+        self.error_type = ExceptionType.NETWORK
 
 
 class InvalidResponse(RedisError):
@@ -70,10 +95,25 @@ class ReadOnlyError(ResponseError):
 
 
 class NoPermissionError(ResponseError):
-    pass
+    def __init__(self, *args, status_code: str | None = None):
+        super().__init__(*args, status_code=status_code)
+        self.error_type = ExceptionType.AUTH
 
 
 class ModuleError(ResponseError):
+    pass
+
+
+class NoSuchFieldsetError(ResponseError):
+    """Server reply when ``HIMPORT SET`` targets a fieldset the connection has not
+    prepared.
+
+    Under lazy PREPARE bundling this is nearly unreachable, but the server can drop
+    session state mid-connection without dropping the socket (e.g. ``RESET`` or
+    ``maxmemory-clients`` eviction). The client catches this to re-prepare on the same
+    socket and retry the SET once instead of failing.
+    """
+
     pass
 
 
@@ -83,7 +123,10 @@ class LockError(RedisError, ValueError):
     # NOTE: For backwards compatibility, this class derives from ValueError.
     # This was originally chosen to behave like threading.Lock.
 
-    def __init__(self, message=None, lock_name=None):
+    def __init__(
+        self, message: str | None = None, lock_name: str | None = None
+    ) -> None:
+        super().__init__(message)
         self.message = message
         self.lock_name = lock_name
 
@@ -106,7 +149,9 @@ class AuthenticationWrongNumberOfArgsError(ResponseError):
     were sent to the AUTH command
     """
 
-    pass
+    def __init__(self, *args, status_code: str | None = None):
+        super().__init__(*args, status_code=status_code)
+        self.error_type = ExceptionType.AUTH
 
 
 class RedisClusterException(Exception):
@@ -114,7 +159,12 @@ class RedisClusterException(Exception):
     Base exception for the RedisCluster client
     """
 
-    pass
+    def __init__(self, *args: object) -> None:
+        super().__init__(*args)
+        self.error_type = ExceptionType.SERVER
+
+    def __repr__(self):
+        return f"{self.error_type.value}:{self.__class__.__name__}"
 
 
 class ClusterError(RedisError):
@@ -123,7 +173,9 @@ class ClusterError(RedisError):
     command execution TTL
     """
 
-    pass
+    def __init__(self, *args, status_code: str | None = None):
+        super().__init__(*args, status_code=status_code)
+        self.error_type = ExceptionType.SERVER
 
 
 class ClusterDownError(ClusterError, ResponseError):
@@ -137,9 +189,11 @@ class ClusterDownError(ClusterError, ResponseError):
     are covered again.
     """
 
-    def __init__(self, resp):
+    def __init__(self, resp, status_code: str | None = None):
         self.args = (resp,)
         self.message = resp
+        self.error_type = ExceptionType.SERVER
+        self.status_code = status_code
 
 
 class AskError(ResponseError):
@@ -158,8 +212,9 @@ class AskError(ResponseError):
         any op will be allowed after asking command
     """
 
-    def __init__(self, resp):
+    def __init__(self, resp, status_code: str | None = None):
         """should only redirect to master node"""
+        super().__init__(resp, status_code=status_code)
         self.args = (resp,)
         self.message = resp
         slot_id, new_node = resp.split(" ")
@@ -175,8 +230,8 @@ class TryAgainError(ResponseError):
     between the source and destination nodes, will generate a -TRYAGAIN error.
     """
 
-    def __init__(self, *args, **kwargs):
-        pass
+    def __init__(self, *args, status_code: str | None = None, **kwargs):
+        super().__init__(*args, status_code=status_code)
 
 
 class ClusterCrossSlotError(ResponseError):
@@ -187,6 +242,10 @@ class ClusterCrossSlotError(ResponseError):
     """
 
     message = "Keys in request don't hash to the same slot"
+
+    def __init__(self, *args, status_code: str | None = None):
+        super().__init__(*args, status_code=status_code)
+        self.error_type = ExceptionType.SERVER
 
 
 class MovedError(AskError):
@@ -220,7 +279,13 @@ class SlotNotCoveredError(RedisClusterException):
     pass
 
 
-class MaxConnectionsError(ConnectionError): ...
+class MaxConnectionsError(ConnectionError):
+    """
+    Raised when a connection pool has reached its max_connections limit.
+    This indicates pool exhaustion rather than an actual connection failure.
+    """
+
+    pass
 
 
 class CrossSlotTransactionError(RedisClusterException):
@@ -236,6 +301,22 @@ class InvalidPipelineStack(RedisClusterException):
     """
     Raised on unexpected response length on pipelines. This is
     most likely a handling error on the stack.
+    """
+
+    pass
+
+
+class ExternalAuthProviderError(ConnectionError):
+    """
+    Raised when an external authentication provider returns an error.
+    """
+
+    pass
+
+
+class IncorrectPolicyType(Exception):
+    """
+    Raised when a policy type isn't matching to any known policy types.
     """
 
     pass

@@ -23,7 +23,8 @@ android {
         }
 
         python {
-            version "3.8"
+            buildPython "py", "-3.10"
+            version "3.10"
             pip {
                 install "yt-dlp"
                 install "spotipy"

@@ -147,6 +147,41 @@ class AudioDownloadManager(
         }
     }
 
+    suspend fun extractStreamInfo(query: String): Result<StreamInfo> = withContext(ioDispatcher) {
+        try {
+            ensurePythonStarted()
+            val py = Python.getInstance()
+            val downloaderModule = py.getModule("downloader")
+            val result: PyObject = downloaderModule.callAttr("extract_stream_url", query)
+            val resultMap = result.asMap()
+            val isSuccess = resultMap[py.getBuiltins().callAttr("str", "success")]?.toBoolean() ?: false
+
+            if (isSuccess) {
+                val url = resultMap[py.getBuiltins().callAttr("str", "url")]?.toString() ?: ""
+                val title = resultMap[py.getBuiltins().callAttr("str", "title")]?.toString() ?: query
+                val artist = resultMap[py.getBuiltins().callAttr("str", "artist")]?.toString() ?: ""
+                val duration = resultMap[py.getBuiltins().callAttr("str", "duration")]?.toLong() ?: 0L
+                val thumb = resultMap[py.getBuiltins().callAttr("str", "thumbnail")]?.toString() ?: ""
+
+                Result.success(
+                    StreamInfo(
+                        url = url,
+                        title = title,
+                        artist = artist,
+                        durationSeconds = duration,
+                        thumbnailUrl = thumb
+                    )
+                )
+            } else {
+                val errorMsg = resultMap[py.getBuiltins().callAttr("str", "error")]?.toString()
+                    ?: "Failed to extract stream"
+                Result.failure(Exception(errorMsg))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
     suspend fun downloadQueue(
         queries: List<String>,
         quality: AudioQuality = AudioQuality.NORMAL
@@ -163,3 +198,12 @@ class AudioDownloadManager(
         _downloadState.value = DownloadState.Idle
     }
 }
+
+data class StreamInfo(
+    val url: String,
+    val title: String,
+    val artist: String,
+    val durationSeconds: Long,
+    val thumbnailUrl: String
+)
+

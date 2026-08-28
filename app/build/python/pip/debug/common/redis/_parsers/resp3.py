@@ -3,18 +3,25 @@ from typing import Any, Union
 
 from ..exceptions import ConnectionError, InvalidResponse, ResponseError
 from ..typing import EncodableT
-from .base import _AsyncRESPBase, _RESPBase
+from ..utils import SENTINEL
+from .base import (
+    AsyncPushNotificationsParser,
+    PushNotificationsParser,
+    _AsyncRESPBase,
+    _RESPBase,
+)
 from .socket import SERVER_CLOSED_CONNECTION_ERROR
 
-_INVALIDATION_MESSAGE = [b"invalidate", "invalidate"]
 
-
-class _RESP3Parser(_RESPBase):
+class _RESP3Parser(_RESPBase, PushNotificationsParser):
     """RESP3 protocol implementation"""
 
     def __init__(self, socket_read_size):
         super().__init__(socket_read_size)
         self.pubsub_push_handler_func = self.handle_pubsub_push_response
+        self.node_moving_push_handler_func = None
+        self.maintenance_push_handler_func = None
+        self.oss_cluster_maint_push_handler_func = None
         self.invalidation_push_handler_func = None
 
     def handle_pubsub_push_response(self, response):
@@ -22,22 +29,40 @@ class _RESP3Parser(_RESPBase):
         logger.debug("Push response: " + str(response))
         return response
 
-    def read_response(self, disable_decoding=False, push_request=False):
-        pos = self._buffer.get_pos() if self._buffer else None
+    def read_response(
+        self,
+        disable_decoding=False,
+        push_request=False,
+        timeout: Union[float, object] = SENTINEL,
+    ):
+        pos = self._buffer.get_pos() if self._buffer is not None else None
         try:
             result = self._read_response(
-                disable_decoding=disable_decoding, push_request=push_request
+                disable_decoding=disable_decoding,
+                push_request=push_request,
+                timeout=timeout,
             )
         except BaseException:
-            if self._buffer:
+            if self._buffer is not None:
                 self._buffer.rewind(pos)
             raise
         else:
-            self._buffer.purge()
+            if self._buffer is not None:
+                try:
+                    self._buffer.purge()
+                except AttributeError:
+                    # Buffer may have been set to None by another thread after
+                    # the check above; result is still valid so we don't raise
+                    pass
             return result
 
-    def _read_response(self, disable_decoding=False, push_request=False):
-        raw = self._buffer.readline()
+    def _read_response(
+        self,
+        disable_decoding=False,
+        push_request=False,
+        timeout: Union[float, object] = SENTINEL,
+    ):
+        raw = self._buffer.readline(timeout=timeout)
         if not raw:
             raise ConnectionError(SERVER_CLOSED_CONNECTION_ERROR)
 
@@ -46,7 +71,7 @@ class _RESP3Parser(_RESPBase):
         # server returned an error
         if byte in (b"-", b"!"):
             if byte == b"!":
-                response = self._buffer.read(int(response))
+                response = self._buffer.read(int(response), timeout=timeout)
             response = response.decode("utf-8", errors="replace")
             error = self.parse_error(response)
             # if the error is a ConnectionError, raise immediately so the user
@@ -75,14 +100,14 @@ class _RESP3Parser(_RESPBase):
             return response == b"t"
         # bulk response
         elif byte == b"$":
-            response = self._buffer.read(int(response))
+            response = self._buffer.read(int(response), timeout=timeout)
         # verbatim string response
         elif byte == b"=":
-            response = self._buffer.read(int(response))[4:]
+            response = self._buffer.read(int(response), timeout=timeout)[4:]
         # array response
         elif byte == b"*":
             response = [
-                self._read_response(disable_decoding=disable_decoding)
+                self._read_response(disable_decoding=disable_decoding, timeout=timeout)
                 for _ in range(int(response))
             ]
         # set response
@@ -90,7 +115,7 @@ class _RESP3Parser(_RESPBase):
             # redis can return unhashable types (like dict) in a set,
             # so we return sets as list, all the time, for predictability
             response = [
-                self._read_response(disable_decoding=disable_decoding)
+                self._read_response(disable_decoding=disable_decoding, timeout=timeout)
                 for _ in range(int(response))
             ]
         # map response
@@ -100,49 +125,45 @@ class _RESP3Parser(_RESPBase):
             # became defined to be left-right in version 3.8
             resp_dict = {}
             for _ in range(int(response)):
-                key = self._read_response(disable_decoding=disable_decoding)
+                key = self._read_response(
+                    disable_decoding=disable_decoding, timeout=timeout
+                )
                 resp_dict[key] = self._read_response(
-                    disable_decoding=disable_decoding, push_request=push_request
+                    disable_decoding=disable_decoding,
+                    push_request=push_request,
+                    timeout=timeout,
                 )
             response = resp_dict
         # push response
         elif byte == b">":
             response = [
                 self._read_response(
-                    disable_decoding=disable_decoding, push_request=push_request
+                    disable_decoding=disable_decoding,
+                    push_request=push_request,
+                    timeout=timeout,
                 )
                 for _ in range(int(response))
             ]
-            response = self.handle_push_response(
-                response, disable_decoding, push_request
-            )
-            if not push_request:
-                return self._read_response(
-                    disable_decoding=disable_decoding, push_request=push_request
-                )
-            else:
+            response = self.handle_push_response(response)
+
+            # if this is a push request return the push response
+            if push_request:
                 return response
+
+            return self._read_response(
+                disable_decoding=disable_decoding,
+                push_request=push_request,
+            )
         else:
             raise InvalidResponse(f"Protocol Error: {raw!r}")
 
         if isinstance(response, bytes) and disable_decoding is False:
             response = self.encoder.decode(response)
+
         return response
 
-    def handle_push_response(self, response, disable_decoding, push_request):
-        if response[0] not in _INVALIDATION_MESSAGE:
-            return self.pubsub_push_handler_func(response)
-        if self.invalidation_push_handler_func:
-            return self.invalidation_push_handler_func(response)
 
-    def set_pubsub_push_handler(self, pubsub_push_handler_func):
-        self.pubsub_push_handler_func = pubsub_push_handler_func
-
-    def set_invalidation_push_handler(self, invalidation_push_handler_func):
-        self.invalidation_push_handler_func = invalidation_push_handler_func
-
-
-class _AsyncRESP3Parser(_AsyncRESPBase):
+class _AsyncRESP3Parser(_AsyncRESPBase, AsyncPushNotificationsParser):
     def __init__(self, socket_read_size):
         super().__init__(socket_read_size)
         self.pubsub_push_handler_func = self.handle_pubsub_push_response
@@ -253,9 +274,7 @@ class _AsyncRESP3Parser(_AsyncRESPBase):
                 )
                 for _ in range(int(response))
             ]
-            response = await self.handle_push_response(
-                response, disable_decoding, push_request
-            )
+            response = await self.handle_push_response(response)
             if not push_request:
                 return await self._read_response(
                     disable_decoding=disable_decoding, push_request=push_request
@@ -268,15 +287,3 @@ class _AsyncRESP3Parser(_AsyncRESPBase):
         if isinstance(response, bytes) and disable_decoding is False:
             response = self.encoder.decode(response)
         return response
-
-    async def handle_push_response(self, response, disable_decoding, push_request):
-        if response[0] not in _INVALIDATION_MESSAGE:
-            return await self.pubsub_push_handler_func(response)
-        if self.invalidation_push_handler_func:
-            return await self.invalidation_push_handler_func(response)
-
-    def set_pubsub_push_handler(self, pubsub_push_handler_func):
-        self.pubsub_push_handler_func = pubsub_push_handler_func
-
-    def set_invalidation_push_handler(self, invalidation_push_handler_func):
-        self.invalidation_push_handler_func = invalidation_push_handler_func

@@ -1,6 +1,7 @@
 from redis import asyncio  # noqa
 from redis.backoff import default_backoff
 from redis.client import Redis, StrictRedis
+from redis.driver_info import DriverInfo
 from redis.cluster import RedisCluster
 from redis.connection import (
     BlockingConnectionPool,
@@ -10,6 +11,22 @@ from redis.connection import (
     UnixDomainSocketConnection,
 )
 from redis.credentials import CredentialProvider, UsernamePasswordCredentialProvider
+from redis.keyspace_notifications import (
+    ChannelType,
+    ClusterKeyspaceNotifications,
+    EventType,
+    KeyeventChannel,
+    KeyNotification,
+    KeyspaceChannel,
+    KeyspaceNotifications,
+    KeyspaceNotificationsInterface,
+    KeyspaceWorkerThread,
+    SubkeyeventChannel,
+    SubkeyspaceChannel,
+    SubkeyspaceeventChannel,
+    SubkeyspaceitemChannel,
+    get_channel_type,
+)
 from redis.exceptions import (
     AuthenticationError,
     AuthenticationWrongNumberOfArgsError,
@@ -20,6 +37,7 @@ from redis.exceptions import (
     DataError,
     InvalidPipelineStack,
     InvalidResponse,
+    MaxConnectionsError,
     OutOfMemoryError,
     PubSubError,
     ReadOnlyError,
@@ -35,6 +53,7 @@ from redis.sentinel import (
     SentinelManagedConnection,
     SentinelManagedSSLConnection,
 )
+from redis.typing import Subscription
 from redis.utils import from_url
 
 
@@ -45,9 +64,8 @@ def int_or_str(value):
         return value
 
 
-# This is the version of redis-py that is being used
-# for building and installing the lib.
-__version__ = "6.1.1"
+__version__ = "8.1.0"
+
 VERSION = tuple(map(int_or_str, __version__.split(".")))
 
 
@@ -56,17 +74,33 @@ __all__ = [
     "AuthenticationWrongNumberOfArgsError",
     "BlockingConnectionPool",
     "BusyLoadingError",
+    "ChannelType",
     "ChildDeadlockedError",
+    "ClusterKeyspaceNotifications",
     "Connection",
     "ConnectionError",
     "ConnectionPool",
     "CredentialProvider",
     "CrossSlotTransactionError",
     "DataError",
+    "DriverInfo",
+    "EventType",
     "from_url",
     "default_backoff",
     "InvalidPipelineStack",
     "InvalidResponse",
+    "KeyeventChannel",
+    "KeyNotification",
+    "KeyspaceChannel",
+    "KeyspaceNotifications",
+    "KeyspaceNotificationsInterface",
+    "KeyspaceWorkerThread",
+    "SubkeyeventChannel",
+    "SubkeyspaceChannel",
+    "SubkeyspaceeventChannel",
+    "SubkeyspaceitemChannel",
+    "get_channel_type",
+    "MaxConnectionsError",
     "OutOfMemoryError",
     "PubSubError",
     "ReadOnlyError",
@@ -82,6 +116,7 @@ __all__ = [
     "SSLConnection",
     "UsernamePasswordCredentialProvider",
     "StrictRedis",
+    "Subscription",
     "TimeoutError",
     "UnixDomainSocketConnection",
     "WatchError",
