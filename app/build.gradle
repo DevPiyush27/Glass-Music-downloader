@@ -23,7 +23,6 @@ android {
         }
 
         python {
-            buildPython "py", "-3.10"
             version "3.10"
             pip {
                 install "yt-dlp"
