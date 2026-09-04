@@ -64,7 +64,7 @@ fun DirectDownloadTab(
                 GlassTextField(
                     value = queryInput,
                     onValueChange = viewModel::onQueryInputChange,
-                    placeholder = "e.g. Starboy The Weeknd\nMidnight City M83",
+                    placeholder = "e.g starboy,salvatore,blinding lights..",
                     singleLine = false,
                     modifier = Modifier.height(90.dp),
                     leadingIcon = {

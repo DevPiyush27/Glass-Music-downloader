@@ -84,7 +84,10 @@ class AudioDownloadManager(
                             )
                         }
                         "completed" -> {
-                            val savedPath = if (filename.isNotEmpty()) "$targetDir/$filename" else targetDir
+                            val savedPath = if (filename.isNotEmpty()) {
+                                val fileObj = File(filename)
+                                if (fileObj.isAbsolute) filename else "$targetDir/$filename"
+                            } else targetDir
                             _downloadState.value = DownloadState.Completed(
                                 songTitle = query,
                                 filePath = savedPath

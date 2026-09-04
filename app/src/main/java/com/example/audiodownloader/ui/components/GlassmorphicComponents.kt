@@ -19,9 +19,9 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 enum class AudioQualityOption(val title: String, val desc: String) {
-    HIGH("High (320 kbps)", "Near lossless MP3/M4A"),
-    NORMAL("Normal (192 kbps)", "Standard streaming quality"),
-    LOW("Data Saver (128 kbps)", "Smaller file size")
+    HIGH("High Quality (itag 251 - Opus)", "Highest audio stream (~160 kbps Opus)"),
+    NORMAL("Normal Quality (itag 140 - AAC)", "Standard AAC M4A (~128 kbps)"),
+    LOW("Data Saver (Lowest)", "Minimal file size (~50-70 kbps)")
 }
 
 @Composable
