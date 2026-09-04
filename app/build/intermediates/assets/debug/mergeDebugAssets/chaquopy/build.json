@@ -12,7 +12,7 @@
         "bootstrap-native/arm64-v8a/_datetime.so": "42a8f66372e3e4b8bb345d864f3c2fda534e03ea",
         "bootstrap-native/x86_64/_struct.so": "8f5b9d817b50ae259202947c1f1d937766476e88",
         "requirements-x86_64.imy": "b04f3ee8f5e43fa3b162981b50bb72fe1acabb33",
-        "app.imy": "0e40b1efc09015f5198e09eaa5ac6463e30778e9",
+        "app.imy": "6b79553f6c5ba48f2a93d75d865ffbf3718596cf",
         "stdlib-common.imy": "b7af63f9aa216405bdd023963417077bc0b25229",
         "bootstrap-native/arm64-v8a/_struct.so": "ea9c70107c40e0e8d5c0821bd5f1ceef6fe7c40f",
         "bootstrap-native/armeabi-v7a/java/chaquopy.so": "e2334b1a6b86bfe2ddcf6339c2a4e7305a4acb9e",

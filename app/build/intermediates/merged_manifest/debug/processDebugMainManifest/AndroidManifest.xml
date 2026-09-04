@@ -35,7 +35,6 @@
         android:extractNativeLibs="false"
         android:label="Glass Audio Downloader"
         android:supportsRtl="true"
-        android:testOnly="true"
         android:theme="@android:style/Theme.Material.Light.NoActionBar" >
         <activity
             android:name="com.example.audiodownloader.MainActivity"
