@@ -20,5 +20,6 @@ data class LocalTrack(
     val album: String,
     val durationMs: Long,
     val contentUri: Uri,
-    val albumArtUri: Uri?
+    val albumArtUri: Uri?,
+    val displayName: String = ""
 )

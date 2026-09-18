@@ -1,0 +1,10 @@
+[
+    {
+        "merged": "com.example.audiodownloader.app-debug-4:/drawable_ic_launcher.xml.flat",
+        "source": "com.example.audiodownloader.app-main-6:/drawable/ic_launcher.xml"
+    },
+    {
+        "merged": "com.example.audiodownloader.app-debug-4:/drawable_ic_launcher_round.xml.flat",
+        "source": "com.example.audiodownloader.app-main-6:/drawable/ic_launcher_round.xml"
+    }
+]

@@ -20,6 +20,7 @@ import androidx.compose.ui.unit.sp
 import com.example.audiodownloader.ui.components.GlassButton
 import com.example.audiodownloader.ui.components.GlassCard
 import com.example.audiodownloader.ui.components.GlassTextField
+import com.example.audiodownloader.ui.components.NeumorphColors
 import com.example.audiodownloader.ui.viewmodel.MainViewModel
 import com.example.audiodownloader.ui.viewmodel.SpotifyExtractionUiState
 
@@ -43,14 +44,14 @@ fun SpotifyExtractorTab(
             GlassCard(modifier = Modifier.fillMaxWidth()) {
                 Text(
                     text = "Spotify Playlist Extractor",
-                    color = Color.White,
+                    color = NeumorphColors.TextCream,
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Bold
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = "Paste a public Spotify playlist link to extract all song titles.",
-                    color = Color.White.copy(alpha = 0.6f),
+                    color = NeumorphColors.TextMuted,
                     fontSize = 13.sp
                 )
                 Spacer(modifier = Modifier.height(14.dp))
@@ -63,7 +64,7 @@ fun SpotifyExtractorTab(
                         Icon(
                             imageVector = Icons.Default.Link,
                             contentDescription = null,
-                            tint = Color(0xFF10B981)
+                            tint = NeumorphColors.AccentCopper
                         )
                     }
                 )
@@ -83,14 +84,14 @@ fun SpotifyExtractorTab(
                             if (isLoading) {
                                 CircularProgressIndicator(
                                     modifier = Modifier.size(18.dp),
-                                    color = Color.White,
+                                    color = NeumorphColors.TextCream,
                                     strokeWidth = 2.dp
                                 )
                             } else {
                                 Icon(
                                     imageVector = Icons.Default.MusicNote,
                                     contentDescription = null,
-                                    tint = Color.White,
+                                    tint = NeumorphColors.TextCream,
                                     modifier = Modifier.size(18.dp)
                                 )
                             }
@@ -106,14 +107,14 @@ fun SpotifyExtractorTab(
                 GlassCard(modifier = Modifier.fillMaxWidth()) {
                     Text(
                         text = "Extraction Error",
-                        color = Color(0xFFF87171),
+                        color = NeumorphColors.StatusError,
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Bold
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
                         text = (extractionState as SpotifyExtractionUiState.Error).message,
-                        color = Color.White.copy(alpha = 0.8f),
+                        color = NeumorphColors.TextCream.copy(alpha = 0.85f),
                         fontSize = 14.sp
                     )
                 }
@@ -132,7 +133,7 @@ fun SpotifyExtractorTab(
                     ) {
                         Text(
                             text = "Extracted Tracks (${tracks.size})",
-                            color = Color.White,
+                            color = NeumorphColors.TextCream,
                             fontSize = 16.sp,
                             fontWeight = FontWeight.SemiBold
                         )
@@ -152,7 +153,7 @@ fun SpotifyExtractorTab(
                                 Icon(
                                     imageVector = Icons.Default.Download,
                                     contentDescription = null,
-                                    tint = Color.White,
+                                    tint = NeumorphColors.TextCream,
                                     modifier = Modifier.size(18.dp)
                                 )
                             }
@@ -165,7 +166,7 @@ fun SpotifyExtractorTab(
                                 Icon(
                                     imageVector = Icons.Default.ContentCopy,
                                     contentDescription = null,
-                                    tint = Color.White,
+                                    tint = NeumorphColors.TextCream,
                                     modifier = Modifier.size(18.dp)
                                 )
                             }
@@ -186,13 +187,13 @@ fun SpotifyExtractorTab(
                     ) {
                         Text(
                             text = "${index + 1}.",
-                            color = Color(0xFF10B981),
+                            color = NeumorphColors.AccentCopperLight,
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Bold
                         )
                         Text(
                             text = trackTitle,
-                            color = Color.White,
+                            color = NeumorphColors.TextCream,
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Medium,
                             modifier = Modifier.weight(1f)

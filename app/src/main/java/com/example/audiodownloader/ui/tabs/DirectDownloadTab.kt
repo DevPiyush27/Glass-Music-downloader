@@ -49,14 +49,14 @@ fun DirectDownloadTab(
             GlassCard(modifier = Modifier.fillMaxWidth()) {
                 Text(
                     text = "Add Songs or URLs",
-                    color = Color.White,
+                    color = NeumorphColors.TextCream,
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Bold
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = "Type titles or paste links (one per line or comma-separated):",
-                    color = Color.White.copy(alpha = 0.6f),
+                    color = NeumorphColors.TextMuted,
                     fontSize = 13.sp
                 )
                 Spacer(modifier = Modifier.height(12.dp))
@@ -71,7 +71,7 @@ fun DirectDownloadTab(
                         Icon(
                             imageVector = Icons.Default.MusicNote,
                             contentDescription = null,
-                            tint = Color(0xFF10B981)
+                            tint = NeumorphColors.AccentCopper
                         )
                     }
                 )
@@ -90,7 +90,7 @@ fun DirectDownloadTab(
                             Icon(
                                 imageVector = Icons.Default.Add,
                                 contentDescription = null,
-                                tint = Color.White,
+                                tint = NeumorphColors.TextCream,
                                 modifier = Modifier.size(18.dp)
                             )
                         }
@@ -109,7 +109,7 @@ fun DirectDownloadTab(
                 ) {
                     Text(
                         text = "Queued Tracks (${songChips.size})",
-                        color = Color.White,
+                        color = NeumorphColors.TextCream,
                         fontSize = 16.sp,
                         fontWeight = FontWeight.SemiBold
                     )
@@ -118,7 +118,7 @@ fun DirectDownloadTab(
                             onClick = viewModel::clearQueue,
                             enabled = !isDownloading
                         ) {
-                            Text("Clear All", color = Color(0xFFF87171), fontSize = 13.sp)
+                            Text("Clear All", color = NeumorphColors.StatusError, fontSize = 13.sp)
                         }
                     }
                 }
@@ -128,7 +128,7 @@ fun DirectDownloadTab(
                 if (songChips.isEmpty()) {
                     Text(
                         text = "No songs in queue. Add songs above or extract from Spotify.",
-                        color = Color.White.copy(alpha = 0.45f),
+                        color = NeumorphColors.TextMuted.copy(alpha = 0.6f),
                         fontSize = 13.sp
                     )
                 } else {
@@ -148,44 +148,38 @@ fun DirectDownloadTab(
             }
         }
 
-        // Quality Selector & Actions
+        // Quality Selector & Actions (STRICTLY INLINE, NO FLOATING POPUP)
         item {
             GlassCard(modifier = Modifier.fillMaxWidth()) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column {
-                        Text(
-                            text = "Audio Quality",
-                            color = Color.White,
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                        Text(
-                            text = "Target stream bitrate",
-                            color = Color.White.copy(alpha = 0.5f),
-                            fontSize = 12.sp
-                        )
-                    }
+                Text(
+                    text = "Audio Quality",
+                    color = NeumorphColors.TextCream,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    text = "Target stream bitrate & format selection",
+                    color = NeumorphColors.TextMuted,
+                    fontSize = 12.sp
+                )
 
-                    GlassDropdownMenu(
-                        selectedOption = when (selectedQuality) {
-                            AudioQuality.LOW -> AudioQualityOption.LOW
-                            AudioQuality.NORMAL -> AudioQualityOption.NORMAL
-                            AudioQuality.HIGH -> AudioQualityOption.HIGH
-                        },
-                        onOptionSelected = { option ->
-                            val quality = when (option) {
-                                AudioQualityOption.LOW -> AudioQuality.LOW
-                                AudioQualityOption.NORMAL -> AudioQuality.NORMAL
-                                AudioQualityOption.HIGH -> AudioQuality.HIGH
-                            }
-                            viewModel.onQualitySelected(quality)
+                Spacer(modifier = Modifier.height(10.dp))
+
+                InlineQualitySelector(
+                    selectedOption = when (selectedQuality) {
+                        AudioQuality.LOW -> AudioQualityOption.LOW
+                        AudioQuality.NORMAL -> AudioQualityOption.NORMAL
+                        AudioQuality.HIGH -> AudioQualityOption.HIGH
+                    },
+                    onOptionSelected = { option ->
+                        val quality: AudioQuality = when (option) {
+                            AudioQualityOption.LOW -> AudioQuality.LOW
+                            AudioQualityOption.NORMAL -> AudioQuality.NORMAL
+                            AudioQualityOption.HIGH -> AudioQuality.HIGH
                         }
-                    )
-                }
+                        viewModel.onQualitySelected(quality)
+                    }
+                )
 
                 Spacer(modifier = Modifier.height(16.dp))
 
@@ -202,7 +196,7 @@ fun DirectDownloadTab(
                             Icon(
                                 imageVector = Icons.Default.Download,
                                 contentDescription = null,
-                                tint = Color.White,
+                                tint = NeumorphColors.TextCream,
                                 modifier = Modifier.size(18.dp)
                             )
                         }
@@ -215,7 +209,7 @@ fun DirectDownloadTab(
                             Icon(
                                 imageVector = Icons.Default.Clear,
                                 contentDescription = null,
-                                tint = Color.White,
+                                tint = NeumorphColors.TextCream,
                                 modifier = Modifier.size(18.dp)
                             )
                         }
@@ -230,7 +224,7 @@ fun DirectDownloadTab(
                 GlassCard(modifier = Modifier.fillMaxWidth()) {
                     Text(
                         text = "Download Engine Status",
-                        color = Color.White,
+                        color = NeumorphColors.TextCream,
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Bold
                     )
@@ -240,7 +234,7 @@ fun DirectDownloadTab(
                         is DownloadState.Queued -> {
                             Text(
                                 text = "⏳ Queued: ${state.songTitle}",
-                                color = Color.White.copy(alpha = 0.85f),
+                                color = NeumorphColors.TextCream.copy(alpha = 0.85f),
                                 fontSize = 14.sp
                             )
                         }
@@ -256,7 +250,7 @@ fun DirectDownloadTab(
                                 ) {
                                     Text(
                                         text = state.songTitle,
-                                        color = Color.White,
+                                        color = NeumorphColors.TextCream,
                                         fontSize = 14.sp,
                                         fontWeight = FontWeight.Medium,
                                         modifier = Modifier.weight(1f),
@@ -264,7 +258,7 @@ fun DirectDownloadTab(
                                     )
                                     Text(
                                         text = "${state.progressPercent.toInt()}% (${state.speed})",
-                                        color = Color(0xFF10B981),
+                                        color = NeumorphColors.AccentCopperLight,
                                         fontSize = 13.sp,
                                         fontWeight = FontWeight.Bold
                                     )
@@ -275,8 +269,8 @@ fun DirectDownloadTab(
                                         .fillMaxWidth()
                                         .height(8.dp)
                                         .clip(RoundedCornerShape(4.dp)),
-                                    color = Color(0xFF10B981),
-                                    trackColor = Color.White.copy(alpha = 0.15f)
+                                    color = NeumorphColors.AccentCopper,
+                                    trackColor = NeumorphColors.SurfacePressed
                                 )
                             }
                         }
@@ -284,7 +278,7 @@ fun DirectDownloadTab(
                             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                 Text(
                                     text = "🔄 Converting to MP3 (FFmpeg): ${state.songTitle}",
-                                    color = Color(0xFFFBBF24),
+                                    color = NeumorphColors.StatusWarning,
                                     fontSize = 14.sp
                                 )
                                 LinearProgressIndicator(
@@ -292,15 +286,15 @@ fun DirectDownloadTab(
                                         .fillMaxWidth()
                                         .height(6.dp)
                                         .clip(RoundedCornerShape(4.dp)),
-                                    color = Color(0xFFFBBF24),
-                                    trackColor = Color.White.copy(alpha = 0.15f)
+                                    color = NeumorphColors.StatusWarning,
+                                    trackColor = NeumorphColors.SurfacePressed
                                 )
                             }
                         }
                         is DownloadState.Completed -> {
                             Text(
                                 text = "✅ Completed: ${state.songTitle}",
-                                color = Color(0xFF10B981),
+                                color = NeumorphColors.AccentCopperLight,
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.SemiBold
                             )
@@ -308,7 +302,7 @@ fun DirectDownloadTab(
                         is DownloadState.Failed -> {
                             Text(
                                 text = "❌ Failed: ${state.songTitle}\n${state.errorMessage}",
-                                color = Color(0xFFF87171),
+                                color = NeumorphColors.StatusError,
                                 fontSize = 13.sp
                             )
                         }

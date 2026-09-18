@@ -56,6 +56,19 @@ class MainViewModel @JvmOverloads constructor(
     private val _spotifyState = MutableStateFlow<SpotifyExtractionUiState>(SpotifyExtractionUiState.Idle)
     val spotifyState: StateFlow<SpotifyExtractionUiState> = _spotifyState.asStateFlow()
 
+    init {
+        viewModelScope.launch {
+            downloadManager.downloadState.collect { state ->
+                if (state is DownloadState.Completed) {
+                    _queryInput.value = ""
+                    _songChips.value = _songChips.value.filterNot {
+                        it.trim().equals(state.songTitle.trim(), ignoreCase = true)
+                    }
+                }
+            }
+        }
+    }
+
     fun selectTab(index: Int) {
         _selectedTab.value = index
     }

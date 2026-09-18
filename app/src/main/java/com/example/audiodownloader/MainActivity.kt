@@ -14,12 +14,12 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Album
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.LibraryMusic
@@ -36,6 +36,9 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.audiodownloader.ui.components.GlassBackground
+import com.example.audiodownloader.ui.components.NeumorphColors
+import com.example.audiodownloader.ui.components.neumorphicExtruded
+import com.example.audiodownloader.ui.components.neumorphicRecessed
 import com.example.audiodownloader.ui.tabs.DirectDownloadTab
 import com.example.audiodownloader.ui.tabs.LocalPlayerTab
 import com.example.audiodownloader.ui.tabs.SpotifyExtractorTab
@@ -86,12 +89,12 @@ class MainActivity : ComponentActivity() {
 
             // Display native emergency fallback text screen
             val scrollView = ScrollView(this).apply {
-                setBackgroundColor(0xFF0F172A.toInt())
+                setBackgroundColor(0xFF222222.toInt())
                 setPadding(32, 64, 32, 32)
             }
             val textView = TextView(this).apply {
                 text = errorText
-                setTextColor(0xFFFF6B6B.toInt())
+                setTextColor(0xFFD9534F.toInt())
                 textSize = 13f
             }
             scrollView.addView(textView)
@@ -191,18 +194,43 @@ fun GlassTopAppBar() {
             .statusBarsPadding()
             .padding(horizontal = 20.dp, vertical = 14.dp)
     ) {
-        Column {
-            Text(
-                text = "Audio Aurora",
-                color = Color.White,
-                fontSize = 22.sp,
-                fontWeight = FontWeight.Bold
-            )
-            Text(
-                text = "Glassmorphic yt-dlp & Spotify Engine",
-                color = Color.White.copy(alpha = 0.5f),
-                fontSize = 12.sp
-            )
+        Row(
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Music Disc Icon Logo Badge
+            Box(
+                modifier = Modifier
+                    .size(46.dp)
+                    .neumorphicExtruded(
+                        cornerRadius = 23.dp,
+                        backgroundColor = NeumorphColors.Surface,
+                        elevation = 5.dp
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Album,
+                    contentDescription = "Audio Aurora Music Disc Logo",
+                    tint = NeumorphColors.AccentCopper,
+                    modifier = Modifier.size(28.dp)
+                )
+            }
+
+            Spacer(modifier = Modifier.width(14.dp))
+
+            Column {
+                Text(
+                    text = "Audio Aurora",
+                    color = NeumorphColors.TextCream,
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = "Neomorphic yt-dlp & Spotify Engine",
+                    color = NeumorphColors.TextMuted,
+                    fontSize = 12.sp
+                )
+            }
         }
     }
 }
@@ -216,32 +244,36 @@ fun GlassBottomNavigationBar(
         modifier = Modifier
             .fillMaxWidth()
             .navigationBarsPadding()
-            .padding(horizontal = 20.dp, vertical = 12.dp)
+            .padding(horizontal = 16.dp, vertical = 12.dp)
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(22.dp))
-                .background(Color.White.copy(alpha = 0.08f))
+                .neumorphicExtruded(
+                    cornerRadius = 24.dp,
+                    backgroundColor = NeumorphColors.Surface,
+                    elevation = 6.dp
+                )
                 .padding(6.dp),
-            horizontalArrangement = Arrangement.SpaceEvenly
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically
         ) {
             GlassNavigationItem(
-                label = "Direct Download",
+                label = "Direct",
                 icon = Icons.Default.Download,
                 isSelected = selectedTab == 0,
                 onClick = { onTabSelected(0) },
                 modifier = Modifier.weight(1f)
             )
             GlassNavigationItem(
-                label = "Spotify Extractor",
+                label = "Spotify",
                 icon = Icons.Default.LibraryMusic,
                 isSelected = selectedTab == 1,
                 onClick = { onTabSelected(1) },
                 modifier = Modifier.weight(1f)
             )
             GlassNavigationItem(
-                label = "Local Player",
+                label = "Player",
                 icon = Icons.Default.GraphicEq,
                 isSelected = selectedTab == 2,
                 onClick = { onTabSelected(2) },
@@ -260,35 +292,42 @@ fun GlassNavigationItem(
     modifier: Modifier = Modifier
 ) {
     val interactionSource = remember { MutableInteractionSource() }
-    val shape = RoundedCornerShape(16.dp)
 
     Box(
         modifier = modifier
-            .clip(shape)
-            .background(if (isSelected) Color(0xFF10B981).copy(alpha = 0.25f) else Color.Transparent)
+            .then(
+                if (isSelected) {
+                    Modifier.neumorphicRecessed(
+                        cornerRadius = 16.dp,
+                        backgroundColor = NeumorphColors.SurfacePressed
+                    )
+                } else {
+                    Modifier.clip(RoundedCornerShape(16.dp))
+                }
+            )
             .clickable(
                 interactionSource = interactionSource,
                 indication = null,
                 onClick = onClick
             )
-            .padding(vertical = 10.dp),
+            .padding(vertical = 10.dp, horizontal = 4.dp),
         contentAlignment = Alignment.Center
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             Icon(
                 imageVector = icon,
                 contentDescription = label,
-                tint = if (isSelected) Color(0xFF10B981) else Color.White.copy(alpha = 0.5f),
+                tint = if (isSelected) NeumorphColors.AccentCopper else NeumorphColors.TextMuted,
                 modifier = Modifier.size(18.dp)
             )
             Text(
                 text = label,
-                color = if (isSelected) Color.White else Color.White.copy(alpha = 0.5f),
+                color = if (isSelected) NeumorphColors.TextCream else NeumorphColors.TextMuted,
                 fontSize = 13.sp,
-                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
             )
         }
     }
@@ -298,9 +337,10 @@ fun GlassNavigationItem(
 fun AudioDownloaderTheme(content: @Composable () -> Unit) {
     MaterialTheme(
         colorScheme = darkColorScheme(
-            primary = Color(0xFF10B981),
-            background = Color(0xFF0A0E1A),
-            surface = Color(0xFF13102B)
+            primary = NeumorphColors.AccentCopper,
+            secondary = NeumorphColors.AccentWarmGold,
+            background = NeumorphColors.Background,
+            surface = NeumorphColors.Surface
         ),
         content = content
     )

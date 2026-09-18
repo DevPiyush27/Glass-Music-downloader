@@ -93,10 +93,11 @@ class AudioDownloadManager(
                                 filePath = savedPath
                             )
                             try {
+                                val mimeType = if (savedPath.endsWith(".flac", ignoreCase = true)) "audio/flac" else "audio/*"
                                 MediaScannerConnection.scanFile(
                                     context.applicationContext,
                                     arrayOf(savedPath),
-                                    arrayOf("audio/*"),
+                                    arrayOf(mimeType),
                                     null
                                 )
                             } catch (_: Exception) {}
@@ -112,12 +113,19 @@ class AudioDownloadManager(
                 }
             }
 
+            val nativeLibDir = context.applicationInfo.nativeLibraryDir
+            val ffmpegBinary = File(nativeLibDir, "libffmpeg.so").takeIf { it.exists() }?.absolutePath
+            val ffmpegLibDir = File(context.noBackupFilesDir, "youtubedl-android/packages/ffmpeg/usr/lib")
+                .takeIf { it.exists() }?.absolutePath
+
             val result: PyObject = downloaderModule.callAttr(
                 "download_audio",
                 query,
                 targetDir,
                 quality.bitrate,
-                callback
+                callback,
+                ffmpegBinary,
+                ffmpegLibDir
             )
 
             val resultMap = result.asMap()
@@ -128,10 +136,11 @@ class AudioDownloadManager(
                 val finalFile = resultMap[py.getBuiltins().callAttr("str", "filename")]?.toString() ?: ""
                 if (finalFile.isNotEmpty()) {
                     try {
+                        val mimeType = if (finalFile.endsWith(".flac", ignoreCase = true)) "audio/flac" else "audio/*"
                         MediaScannerConnection.scanFile(
                             context.applicationContext,
                             arrayOf(finalFile),
-                            arrayOf("audio/*"),
+                            arrayOf(mimeType),
                             null
                         )
                     } catch (_: Exception) {}

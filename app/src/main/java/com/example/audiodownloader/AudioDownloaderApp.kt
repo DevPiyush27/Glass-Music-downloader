@@ -23,6 +23,12 @@ class AudioDownloaderApp : PyApplication() {
 
         try {
             super.onCreate()
+            try {
+                com.yausername.ffmpeg.FFmpeg.getInstance().init(this)
+                Log.i("FFmpegInit", "FFmpeg native libraries initialized successfully")
+            } catch (t: Throwable) {
+                Log.e("FFmpegInit", "Failed to initialize FFmpeg native libraries: ${t.message}", t)
+            }
         } catch (t: Throwable) {
             val sw = StringWriter()
             t.printStackTrace(PrintWriter(sw))
