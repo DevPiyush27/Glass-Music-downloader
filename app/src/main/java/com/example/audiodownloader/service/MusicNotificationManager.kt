@@ -114,7 +114,7 @@ class MusicNotificationManager(
 
         return NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_waveform)
-            .setColor(0xFFFFB6C1.toInt())
+            .setColor(state.accentColor.toInt())
             .setColorized(true)
             .setCustomContentView(collapsedView)
             .setCustomBigContentView(expandedView)

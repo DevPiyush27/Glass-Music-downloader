@@ -12,6 +12,9 @@ MERGED from [androidx.activity:activity:1.9.2] C:\Users\piyus\.gradle\caches\8.9
 MERGED from [androidx.compose.material3:material3-android:1.3.0] C:\Users\piyus\.gradle\caches\8.9\transforms\ea0d11d4778568519fc14bc716a5123f\transformed\material3-release\AndroidManifest.xml:17:1-22:12
 MERGED from [androidx.savedstate:savedstate-ktx:1.2.1] C:\Users\piyus\.gradle\caches\8.9\transforms\b94e068891852d3d4af819ca955528d5\transformed\savedstate-ktx-1.2.1\AndroidManifest.xml:17:1-22:12
 MERGED from [androidx.savedstate:savedstate:1.2.1] C:\Users\piyus\.gradle\caches\8.9\transforms\0408db0cbc4f6f7e9c0783903e9a487b\transformed\savedstate-1.2.1\AndroidManifest.xml:17:1-22:12
+MERGED from [androidx.palette:palette-ktx:1.0.0] C:\Users\piyus\.gradle\caches\8.9\transforms\2023ddf9eb71d908de678c13aafac29d\transformed\palette-ktx-1.0.0\AndroidManifest.xml:17:1-22:12
+MERGED from [androidx.palette:palette:1.0.0] C:\Users\piyus\.gradle\caches\8.9\transforms\e325d7f9b0a4c8447205ce1661e3651e\transformed\palette-1.0.0\AndroidManifest.xml:17:1-22:12
+MERGED from [androidx.legacy:legacy-support-core-utils:1.0.0] C:\Users\piyus\.gradle\caches\8.9\transforms\2ba51c1b951cf86e46d92effee38a56c\transformed\legacy-support-core-utils-1.0.0\AndroidManifest.xml:17:1-22:12
 MERGED from [androidx.loader:loader:1.0.0] C:\Users\piyus\.gradle\caches\8.9\transforms\bbe023dfc2d72900ecb7a95ddaa43144\transformed\loader-1.0.0\AndroidManifest.xml:17:1-22:12
 MERGED from [androidx.compose.animation:animation-core-android:1.7.0] C:\Users\piyus\.gradle\caches\8.9\transforms\086537f1dca733f78e8c3a2be554b495\transformed\animation-core-release\AndroidManifest.xml:2:1-7:12
 MERGED from [androidx.compose.material:material-ripple-android:1.7.0] C:\Users\piyus\.gradle\caches\8.9\transforms\0154d45944007ea79dadfd4696cb0203\transformed\material-ripple-release\AndroidManifest.xml:2:1-7:12
@@ -64,11 +67,14 @@ MERGED from [androidx.activity:activity-compose:1.9.2] C:\Users\piyus\.gradle\ca
 MERGED from [androidx.compose.runtime:runtime-saveable-android:1.7.0] C:\Users\piyus\.gradle\caches\8.9\transforms\07ef46c142643fa73a168d0e70a4c74e\transformed\runtime-saveable-release\AndroidManifest.xml:2:1-7:12
 MERGED from [androidx.compose.runtime:runtime-android:1.7.0] C:\Users\piyus\.gradle\caches\8.9\transforms\04342b1fe5f682c66b5c17ceabbe2e54\transformed\runtime-release\AndroidManifest.xml:2:1-7:12
 MERGED from [androidx.annotation:annotation-experimental:1.4.0] C:\Users\piyus\.gradle\caches\8.9\transforms\773225f3e2b30e20f60016705d2dd844\transformed\annotation-experimental-1.4.0\AndroidManifest.xml:2:1-7:12
+MERGED from [androidx.documentfile:documentfile:1.0.1] C:\Users\piyus\.gradle\caches\8.9\transforms\7d2462c32cc8a665728990c6265bcabf\transformed\documentfile-1.0.1\AndroidManifest.xml:17:1-22:12
 MERGED from [androidx.exifinterface:exifinterface:1.3.6] C:\Users\piyus\.gradle\caches\8.9\transforms\dc47c3c269b799e036843565ccb2fa08\transformed\exifinterface-1.3.6\AndroidManifest.xml:17:1-24:12
 MERGED from [androidx.cursoradapter:cursoradapter:1.0.0] C:\Users\piyus\.gradle\caches\8.9\transforms\74966534b91fd95e99751e0d89ce7e61\transformed\cursoradapter-1.0.0\AndroidManifest.xml:17:1-22:12
 MERGED from [androidx.profileinstaller:profileinstaller:1.3.1] C:\Users\piyus\.gradle\caches\8.9\transforms\e6f06bbaa06673a56510ffa65e4c9f17\transformed\profileinstaller-1.3.1\AndroidManifest.xml:17:1-55:12
 MERGED from [androidx.startup:startup-runtime:1.1.1] C:\Users\piyus\.gradle\caches\8.9\transforms\aceee313ca759d777499818b7bf153cc\transformed\startup-runtime-1.1.1\AndroidManifest.xml:17:1-33:12
 MERGED from [androidx.tracing:tracing:1.0.0] C:\Users\piyus\.gradle\caches\8.9\transforms\1f1897fb4d2eb53cfddc30d26310ce01\transformed\tracing-1.0.0\AndroidManifest.xml:17:1-24:12
+MERGED from [androidx.localbroadcastmanager:localbroadcastmanager:1.0.0] C:\Users\piyus\.gradle\caches\8.9\transforms\b7807dc2bde48c026407e94e8fa14e46\transformed\localbroadcastmanager-1.0.0\AndroidManifest.xml:17:1-22:12
+MERGED from [androidx.print:print:1.0.0] C:\Users\piyus\.gradle\caches\8.9\transforms\a88af232c44632f73a9d412e2cc2ea30\transformed\print-1.0.0\AndroidManifest.xml:17:1-22:12
 MERGED from [androidx.versionedparcelable:versionedparcelable:1.1.1] C:\Users\piyus\.gradle\caches\8.9\transforms\332950f9e229e4e146f38f49926d0f22\transformed\versionedparcelable-1.1.1\AndroidManifest.xml:17:1-27:12
 MERGED from [androidx.interpolator:interpolator:1.0.0] C:\Users\piyus\.gradle\caches\8.9\transforms\f8d2e0f2b651835e9f16b239a2674088\transformed\interpolator-1.0.0\AndroidManifest.xml:17:1-22:12
 MERGED from [androidx.arch.core:core-runtime:2.2.0] C:\Users\piyus\.gradle\caches\8.9\transforms\dcb076df1433f4afe977a66b38280805\transformed\core-runtime-2.2.0\AndroidManifest.xml:17:1-22:12
@@ -154,7 +160,7 @@ MERGED from [androidx.versionedparcelable:versionedparcelable:1.1.1] C:\Users\pi
 	android:allowBackup
 		ADDED from C:\Glass-Music-downloader-main\app\src\main\AndroidManifest.xml:16:9-35
 	android:theme
-		ADDED from C:\Glass-Music-downloader-main\app\src\main\AndroidManifest.xml:21:9-72
+		ADDED from C:\Glass-Music-downloader-main\app\src\main\AndroidManifest.xml:21:9-56
 	android:name
 		ADDED from C:\Glass-Music-downloader-main\app\src\main\AndroidManifest.xml:15:9-43
 activity#com.example.audiodownloader.MainActivity
@@ -162,7 +168,7 @@ ADDED from C:\Glass-Music-downloader-main\app\src\main\AndroidManifest.xml:22:9-
 	android:exported
 		ADDED from C:\Glass-Music-downloader-main\app\src\main\AndroidManifest.xml:24:13-36
 	android:theme
-		ADDED from C:\Glass-Music-downloader-main\app\src\main\AndroidManifest.xml:25:13-76
+		ADDED from C:\Glass-Music-downloader-main\app\src\main\AndroidManifest.xml:25:13-60
 	android:name
 		ADDED from C:\Glass-Music-downloader-main\app\src\main\AndroidManifest.xml:23:13-41
 intent-filter#action:name:android.intent.action.MAIN+category:name:android.intent.category.LAUNCHER
@@ -233,6 +239,12 @@ MERGED from [androidx.savedstate:savedstate-ktx:1.2.1] C:\Users\piyus\.gradle\ca
 MERGED from [androidx.savedstate:savedstate-ktx:1.2.1] C:\Users\piyus\.gradle\caches\8.9\transforms\b94e068891852d3d4af819ca955528d5\transformed\savedstate-ktx-1.2.1\AndroidManifest.xml:20:5-44
 MERGED from [androidx.savedstate:savedstate:1.2.1] C:\Users\piyus\.gradle\caches\8.9\transforms\0408db0cbc4f6f7e9c0783903e9a487b\transformed\savedstate-1.2.1\AndroidManifest.xml:20:5-44
 MERGED from [androidx.savedstate:savedstate:1.2.1] C:\Users\piyus\.gradle\caches\8.9\transforms\0408db0cbc4f6f7e9c0783903e9a487b\transformed\savedstate-1.2.1\AndroidManifest.xml:20:5-44
+MERGED from [androidx.palette:palette-ktx:1.0.0] C:\Users\piyus\.gradle\caches\8.9\transforms\2023ddf9eb71d908de678c13aafac29d\transformed\palette-ktx-1.0.0\AndroidManifest.xml:20:5-44
+MERGED from [androidx.palette:palette-ktx:1.0.0] C:\Users\piyus\.gradle\caches\8.9\transforms\2023ddf9eb71d908de678c13aafac29d\transformed\palette-ktx-1.0.0\AndroidManifest.xml:20:5-44
+MERGED from [androidx.palette:palette:1.0.0] C:\Users\piyus\.gradle\caches\8.9\transforms\e325d7f9b0a4c8447205ce1661e3651e\transformed\palette-1.0.0\AndroidManifest.xml:20:5-44
+MERGED from [androidx.palette:palette:1.0.0] C:\Users\piyus\.gradle\caches\8.9\transforms\e325d7f9b0a4c8447205ce1661e3651e\transformed\palette-1.0.0\AndroidManifest.xml:20:5-44
+MERGED from [androidx.legacy:legacy-support-core-utils:1.0.0] C:\Users\piyus\.gradle\caches\8.9\transforms\2ba51c1b951cf86e46d92effee38a56c\transformed\legacy-support-core-utils-1.0.0\AndroidManifest.xml:20:5-44
+MERGED from [androidx.legacy:legacy-support-core-utils:1.0.0] C:\Users\piyus\.gradle\caches\8.9\transforms\2ba51c1b951cf86e46d92effee38a56c\transformed\legacy-support-core-utils-1.0.0\AndroidManifest.xml:20:5-44
 MERGED from [androidx.loader:loader:1.0.0] C:\Users\piyus\.gradle\caches\8.9\transforms\bbe023dfc2d72900ecb7a95ddaa43144\transformed\loader-1.0.0\AndroidManifest.xml:20:5-44
 MERGED from [androidx.loader:loader:1.0.0] C:\Users\piyus\.gradle\caches\8.9\transforms\bbe023dfc2d72900ecb7a95ddaa43144\transformed\loader-1.0.0\AndroidManifest.xml:20:5-44
 MERGED from [androidx.compose.animation:animation-core-android:1.7.0] C:\Users\piyus\.gradle\caches\8.9\transforms\086537f1dca733f78e8c3a2be554b495\transformed\animation-core-release\AndroidManifest.xml:5:5-44
@@ -337,6 +349,8 @@ MERGED from [androidx.compose.runtime:runtime-android:1.7.0] C:\Users\piyus\.gra
 MERGED from [androidx.compose.runtime:runtime-android:1.7.0] C:\Users\piyus\.gradle\caches\8.9\transforms\04342b1fe5f682c66b5c17ceabbe2e54\transformed\runtime-release\AndroidManifest.xml:5:5-44
 MERGED from [androidx.annotation:annotation-experimental:1.4.0] C:\Users\piyus\.gradle\caches\8.9\transforms\773225f3e2b30e20f60016705d2dd844\transformed\annotation-experimental-1.4.0\AndroidManifest.xml:5:5-44
 MERGED from [androidx.annotation:annotation-experimental:1.4.0] C:\Users\piyus\.gradle\caches\8.9\transforms\773225f3e2b30e20f60016705d2dd844\transformed\annotation-experimental-1.4.0\AndroidManifest.xml:5:5-44
+MERGED from [androidx.documentfile:documentfile:1.0.1] C:\Users\piyus\.gradle\caches\8.9\transforms\7d2462c32cc8a665728990c6265bcabf\transformed\documentfile-1.0.1\AndroidManifest.xml:20:5-44
+MERGED from [androidx.documentfile:documentfile:1.0.1] C:\Users\piyus\.gradle\caches\8.9\transforms\7d2462c32cc8a665728990c6265bcabf\transformed\documentfile-1.0.1\AndroidManifest.xml:20:5-44
 MERGED from [androidx.exifinterface:exifinterface:1.3.6] C:\Users\piyus\.gradle\caches\8.9\transforms\dc47c3c269b799e036843565ccb2fa08\transformed\exifinterface-1.3.6\AndroidManifest.xml:20:5-22:41
 MERGED from [androidx.exifinterface:exifinterface:1.3.6] C:\Users\piyus\.gradle\caches\8.9\transforms\dc47c3c269b799e036843565ccb2fa08\transformed\exifinterface-1.3.6\AndroidManifest.xml:20:5-22:41
 MERGED from [androidx.cursoradapter:cursoradapter:1.0.0] C:\Users\piyus\.gradle\caches\8.9\transforms\74966534b91fd95e99751e0d89ce7e61\transformed\cursoradapter-1.0.0\AndroidManifest.xml:20:5-44
@@ -347,6 +361,10 @@ MERGED from [androidx.startup:startup-runtime:1.1.1] C:\Users\piyus\.gradle\cach
 MERGED from [androidx.startup:startup-runtime:1.1.1] C:\Users\piyus\.gradle\caches\8.9\transforms\aceee313ca759d777499818b7bf153cc\transformed\startup-runtime-1.1.1\AndroidManifest.xml:21:5-23:41
 MERGED from [androidx.tracing:tracing:1.0.0] C:\Users\piyus\.gradle\caches\8.9\transforms\1f1897fb4d2eb53cfddc30d26310ce01\transformed\tracing-1.0.0\AndroidManifest.xml:20:5-22:41
 MERGED from [androidx.tracing:tracing:1.0.0] C:\Users\piyus\.gradle\caches\8.9\transforms\1f1897fb4d2eb53cfddc30d26310ce01\transformed\tracing-1.0.0\AndroidManifest.xml:20:5-22:41
+MERGED from [androidx.localbroadcastmanager:localbroadcastmanager:1.0.0] C:\Users\piyus\.gradle\caches\8.9\transforms\b7807dc2bde48c026407e94e8fa14e46\transformed\localbroadcastmanager-1.0.0\AndroidManifest.xml:20:5-44
+MERGED from [androidx.localbroadcastmanager:localbroadcastmanager:1.0.0] C:\Users\piyus\.gradle\caches\8.9\transforms\b7807dc2bde48c026407e94e8fa14e46\transformed\localbroadcastmanager-1.0.0\AndroidManifest.xml:20:5-44
+MERGED from [androidx.print:print:1.0.0] C:\Users\piyus\.gradle\caches\8.9\transforms\a88af232c44632f73a9d412e2cc2ea30\transformed\print-1.0.0\AndroidManifest.xml:20:5-44
+MERGED from [androidx.print:print:1.0.0] C:\Users\piyus\.gradle\caches\8.9\transforms\a88af232c44632f73a9d412e2cc2ea30\transformed\print-1.0.0\AndroidManifest.xml:20:5-44
 MERGED from [androidx.versionedparcelable:versionedparcelable:1.1.1] C:\Users\piyus\.gradle\caches\8.9\transforms\332950f9e229e4e146f38f49926d0f22\transformed\versionedparcelable-1.1.1\AndroidManifest.xml:20:5-22:41
 MERGED from [androidx.versionedparcelable:versionedparcelable:1.1.1] C:\Users\piyus\.gradle\caches\8.9\transforms\332950f9e229e4e146f38f49926d0f22\transformed\versionedparcelable-1.1.1\AndroidManifest.xml:20:5-22:41
 MERGED from [androidx.interpolator:interpolator:1.0.0] C:\Users\piyus\.gradle\caches\8.9\transforms\f8d2e0f2b651835e9f16b239a2674088\transformed\interpolator-1.0.0\AndroidManifest.xml:20:5-44

@@ -18,7 +18,8 @@ data class PlayerState(
     val durationMs: Long = 0L,
     val queueSize: Int = 0,
     val hasNext: Boolean = false,
-    val hasPrevious: Boolean = false
+    val hasPrevious: Boolean = false,
+    val accentColor: Long = 0xFFFFB6C1L
 )
 
 /**
@@ -30,7 +31,8 @@ enum class MusicAction {
     REWIND,
     FAST_FORWARD,
     NEXT,
-    QUEUE
+    QUEUE,
+    STOP
 }
 
 /**

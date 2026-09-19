@@ -2,7 +2,9 @@ package com.example.audiodownloader.data.downloader
 
 import android.content.Context
 import android.media.MediaScannerConnection
+import android.net.Uri
 import android.os.Environment
+import androidx.documentfile.provider.DocumentFile
 import com.chaquo.python.PyObject
 import com.chaquo.python.Python
 import com.chaquo.python.android.AndroidPlatform
@@ -47,22 +49,12 @@ class AudioDownloadManager(
         try {
             ensurePythonStarted()
 
-            // Resolve target directory (Download/Music with fallback to app external Music folder)
-            val targetDir = customOutputDir ?: try {
-                val publicDir = File(
-                    Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
-                    "Music"
-                )
-                if (publicDir.exists() || publicDir.mkdirs()) {
-                    publicDir.absolutePath
-                } else {
-                    context.getExternalFilesDir(Environment.DIRECTORY_MUSIC)?.absolutePath
-                        ?: context.filesDir.absolutePath
-                }
-            } catch (_: Exception) {
-                context.getExternalFilesDir(Environment.DIRECTORY_MUSIC)?.absolutePath
-                    ?: context.filesDir.absolutePath
+            // 1. Target directory: app's internal cache directory for Python download & transcoding
+            val cacheDirectory = context.cacheDir
+            if (!cacheDirectory.exists()) {
+                cacheDirectory.mkdirs()
             }
+            val targetDir = customOutputDir ?: cacheDirectory.absolutePath
 
             _downloadState.value = DownloadState.Queued(songTitle = query)
 
@@ -84,23 +76,9 @@ class AudioDownloadManager(
                             )
                         }
                         "completed" -> {
-                            val savedPath = if (filename.isNotEmpty()) {
-                                val fileObj = File(filename)
-                                if (fileObj.isAbsolute) filename else "$targetDir/$filename"
-                            } else targetDir
-                            _downloadState.value = DownloadState.Completed(
-                                songTitle = query,
-                                filePath = savedPath
-                            )
-                            try {
-                                val mimeType = if (savedPath.endsWith(".flac", ignoreCase = true)) "audio/flac" else "audio/*"
-                                MediaScannerConnection.scanFile(
-                                    context.applicationContext,
-                                    arrayOf(savedPath),
-                                    arrayOf(mimeType),
-                                    null
-                                )
-                            } catch (_: Exception) {}
+                            // Python has completed downloading/transcoding to cache.
+                            // State transitions to Converting while copying to SAF.
+                            _downloadState.value = DownloadState.Converting(songTitle = query)
                         }
                     }
                 }
@@ -118,6 +96,7 @@ class AudioDownloadManager(
             val ffmpegLibDir = File(context.noBackupFilesDir, "youtubedl-android/packages/ffmpeg/usr/lib")
                 .takeIf { it.exists() }?.absolutePath
 
+            // Execute Python download & transcoding inside cacheDir
             val result: PyObject = downloaderModule.callAttr(
                 "download_audio",
                 query,
@@ -134,17 +113,85 @@ class AudioDownloadManager(
             if (isSuccess) {
                 val title = resultMap[py.getBuiltins().callAttr("str", "title")]?.toString() ?: query
                 val finalFile = resultMap[py.getBuiltins().callAttr("str", "filename")]?.toString() ?: ""
-                if (finalFile.isNotEmpty()) {
-                    try {
-                        val mimeType = if (finalFile.endsWith(".flac", ignoreCase = true)) "audio/flac" else "audio/*"
-                        MediaScannerConnection.scanFile(
-                            context.applicationContext,
-                            arrayOf(finalFile),
-                            arrayOf(mimeType),
-                            null
-                        )
-                    } catch (_: Exception) {}
+
+                val cachedFile = if (File(finalFile).isAbsolute) {
+                    File(finalFile)
+                } else {
+                    File(targetDir, finalFile)
                 }
+
+                var finalDestinationPathOrUri = cachedFile.absolutePath
+
+                if (cachedFile.exists()) {
+                    // 2. SAF COPY PIPELINE: Securely copy from cache to user's selected SAF folder
+                    val safPrefs = context.getSharedPreferences("audio_aurora_saf_prefs", Context.MODE_PRIVATE)
+                    val savedSafUriString = safPrefs.getString("music_folder_tree_uri", null)
+
+                    if (!savedSafUriString.isNullOrBlank()) {
+                        val treeUri = Uri.parse(savedSafUriString)
+                        val pickedDir = DocumentFile.fromTreeUri(context, treeUri)
+                        val mimeType = if (cachedFile.name.endsWith(".flac", ignoreCase = true)) {
+                            "audio/flac"
+                        } else {
+                            "audio/mpeg"
+                        }
+
+                        val targetFile = pickedDir?.createFile(mimeType, cachedFile.name)
+                            ?: throw IllegalStateException("Failed to create SAF document for: ${cachedFile.name}")
+
+                        // 3. STREAM THE BYTES
+                        cachedFile.inputStream().use { inputStream ->
+                            context.contentResolver.openOutputStream(targetFile.uri)?.use { outputStream ->
+                                inputStream.copyTo(outputStream)
+                            } ?: throw IllegalStateException("Failed to open OutputStream for SAF URI: ${targetFile.uri}")
+                        }
+
+                        finalDestinationPathOrUri = targetFile.uri.toString()
+
+                        // 5. MediaStore scan for system indexers
+                        try {
+                            MediaScannerConnection.scanFile(
+                                context.applicationContext,
+                                arrayOf(targetFile.uri.toString()),
+                                arrayOf(mimeType),
+                                null
+                            )
+                        } catch (_: Exception) {}
+                    } else {
+                        // Fallback: Copy to public Download/Music if SAF tree URI is not yet configured
+                        val publicDir = File(
+                            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
+                            "Music"
+                        )
+                        if (publicDir.exists() || publicDir.mkdirs()) {
+                            val destinationFile = File(publicDir, cachedFile.name)
+                            cachedFile.inputStream().use { input ->
+                                destinationFile.outputStream().use { output ->
+                                    input.copyTo(output)
+                                }
+                            }
+                            finalDestinationPathOrUri = destinationFile.absolutePath
+                            try {
+                                val mimeType = if (destinationFile.name.endsWith(".flac", ignoreCase = true)) "audio/flac" else "audio/*"
+                                MediaScannerConnection.scanFile(
+                                    context.applicationContext,
+                                    arrayOf(destinationFile.absolutePath),
+                                    arrayOf(mimeType),
+                                    null
+                                )
+                            } catch (_: Exception) {}
+                        }
+                    }
+
+                    // 4. CLEANUP: Delete cached file to prevent internal storage bloating
+                    cachedFile.delete()
+                }
+
+                _downloadState.value = DownloadState.Completed(
+                    songTitle = query,
+                    filePath = finalDestinationPathOrUri
+                )
+
                 Result.success(title)
             } else {
                 val errorMsg = resultMap[py.getBuiltins().callAttr("str", "error")]?.toString()

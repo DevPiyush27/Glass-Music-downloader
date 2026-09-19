@@ -101,11 +101,29 @@ class MusicService : MediaBrowserServiceCompat() {
         result.sendResult(mutableListOf())
     }
 
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+
+        // 1. Tell ExoPlayer to stop playback immediately
+        MusicStateBridge.dispatchAction(MusicAction.STOP)
+
+        // 2. Remove notification and terminate foreground status
+        ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
+        val manager = getSystemService(NOTIFICATION_SERVICE) as? android.app.NotificationManager
+        manager?.cancel(MusicNotificationManager.NOTIFICATION_ID)
+
+        // 3. Stop this service
+        stopSelf()
+    }
+
     override fun onDestroy() {
         // Cancel CoroutineScope when service is destroyed
         serviceScope.cancel()
         mediaSession.isActive = false
         mediaSession.release()
+        ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
+        val manager = getSystemService(NOTIFICATION_SERVICE) as? android.app.NotificationManager
+        manager?.cancel(MusicNotificationManager.NOTIFICATION_ID)
         super.onDestroy()
     }
 }

@@ -1,0 +1,28 @@
+{
+    "logs": [
+        {
+            "outputFile": "com.example.audiodownloader.app-mergeDebugResources-2:/values-v31/values-v31.xml",
+            "map": [
+                {
+                    "source": "C:\\Glass-Music-downloader-main\\app\\src\\main\\res\\values-v31\\themes.xml",
+                    "from": {
+                        "startLines": "3",
+                        "startColumns": "4",
+                        "startOffsets": "162",
+                        "endLines": "11",
+                        "endColumns": "12",
+                        "endOffsets": "822"
+                    },
+                    "to": {
+                        "startLines": "2",
+                        "startColumns": "4",
+                        "startOffsets": "55",
+                        "endLines": "10",
+                        "endColumns": "12",
+                        "endOffsets": "715"
+                    }
+                }
+            ]
+        }
+    ]
+}

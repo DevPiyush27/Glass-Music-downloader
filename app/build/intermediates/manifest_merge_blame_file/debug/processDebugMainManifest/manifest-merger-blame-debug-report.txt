@@ -2,7 +2,7 @@
 2<manifest xmlns:android="http://schemas.android.com/apk/res/android"
 3    package="com.example.audiodownloader"
 4    android:versionCode="3"
-5    android:versionName="1.4.0" >
+5    android:versionName="1.5.0" >
 6
 7    <uses-sdk
 8        android:minSdkVersion="26"
@@ -71,16 +71,16 @@
 39-->C:\Glass-Music-downloader-main\app\src\main\AndroidManifest.xml:19:9-56
 40        android:supportsRtl="true"
 40-->C:\Glass-Music-downloader-main\app\src\main\AndroidManifest.xml:20:9-35
-41        android:theme="@android:style/Theme.Material.Light.NoActionBar" >
-41-->C:\Glass-Music-downloader-main\app\src\main\AndroidManifest.xml:21:9-72
+41        android:theme="@style/Theme.AudioAurora.Splash" >
+41-->C:\Glass-Music-downloader-main\app\src\main\AndroidManifest.xml:21:9-56
 42        <activity
 42-->C:\Glass-Music-downloader-main\app\src\main\AndroidManifest.xml:22:9-30:20
 43            android:name="com.example.audiodownloader.MainActivity"
 43-->C:\Glass-Music-downloader-main\app\src\main\AndroidManifest.xml:23:13-41
 44            android:exported="true"
 44-->C:\Glass-Music-downloader-main\app\src\main\AndroidManifest.xml:24:13-36
-45            android:theme="@android:style/Theme.Material.Light.NoActionBar" >
-45-->C:\Glass-Music-downloader-main\app\src\main\AndroidManifest.xml:25:13-76
+45            android:theme="@style/Theme.AudioAurora.Splash" >
+45-->C:\Glass-Music-downloader-main\app\src\main\AndroidManifest.xml:25:13-60
 46            <intent-filter>
 46-->C:\Glass-Music-downloader-main\app\src\main\AndroidManifest.xml:26:13-29:29
 47                <action android:name="android.intent.action.MAIN" />

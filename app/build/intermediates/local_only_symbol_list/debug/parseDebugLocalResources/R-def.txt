@@ -1,6 +1,8 @@
 R_DEF: Internal format may change without notice
 local
+color app_background
 drawable anim_equalizer
+drawable app_logo
 drawable bg_notif_art_curved
 drawable bg_notif_button
 drawable bg_notif_button_play
@@ -22,6 +24,7 @@ drawable ic_waveform_frame2
 drawable ic_waveform_frame3
 drawable ic_waveform_frame4
 drawable ic_waveform_frozen
+drawable splash_background
 id btn_notif_forward
 id btn_notif_next
 id btn_notif_play_pause
@@ -38,3 +41,4 @@ id tv_expanded_artist
 id tv_expanded_title
 layout notification_collapsed
 layout notification_expanded
+style Theme.AudioAurora.Splash

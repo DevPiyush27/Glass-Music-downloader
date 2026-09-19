@@ -20,6 +20,7 @@ import androidx.compose.ui.unit.sp
 import com.example.audiodownloader.ui.components.GlassButton
 import com.example.audiodownloader.ui.components.GlassCard
 import com.example.audiodownloader.ui.components.GlassTextField
+import com.example.audiodownloader.ui.components.LocalNeomorphicAccent
 import com.example.audiodownloader.ui.components.NeumorphColors
 import com.example.audiodownloader.ui.viewmodel.MainViewModel
 import com.example.audiodownloader.ui.viewmodel.SpotifyExtractionUiState
@@ -64,7 +65,7 @@ fun SpotifyExtractorTab(
                         Icon(
                             imageVector = Icons.Default.Link,
                             contentDescription = null,
-                            tint = NeumorphColors.AccentCopper
+                            tint = LocalNeomorphicAccent.current
                         )
                     }
                 )
@@ -187,7 +188,7 @@ fun SpotifyExtractorTab(
                     ) {
                         Text(
                             text = "${index + 1}.",
-                            color = NeumorphColors.AccentCopperLight,
+                            color = LocalNeomorphicAccent.current,
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Bold
                         )

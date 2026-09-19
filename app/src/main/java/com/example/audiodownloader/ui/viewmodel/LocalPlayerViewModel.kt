@@ -1,14 +1,18 @@
 package com.example.audiodownloader.ui.viewmodel
 
 import android.app.Application
+import android.content.Context
 import android.content.Intent
 import android.content.ContentUris
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
+import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.media3.common.AudioAttributes
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
@@ -18,10 +22,23 @@ import com.example.audiodownloader.domain.model.LocalTrack
 import android.media.MediaScannerConnection
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import android.app.RecoverableSecurityException
+import android.content.IntentSender
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.ImageDecoder
+import android.media.MediaMetadataRetriever
+import android.util.Size
+import androidx.core.graphics.ColorUtils
+import androidx.palette.graphics.Palette
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.stateIn
@@ -33,6 +50,8 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.FileInputStream
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * ViewModel backing the local music player tab.
@@ -45,7 +64,14 @@ import java.io.File
  */
 class LocalPlayerViewModel(application: Application) : AndroidViewModel(application) {
 
+    private val audioAttributes = AudioAttributes.Builder()
+        .setUsage(C.USAGE_MEDIA)
+        .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
+        .build()
+
     private val player: ExoPlayer = ExoPlayer.Builder(application)
+        .setAudioAttributes(audioAttributes, true)
+        .setHandleAudioBecomingNoisy(true)
         .setSeekBackIncrementMs(SEEK_INCREMENT_MS)
         .setSeekForwardIncrementMs(SEEK_INCREMENT_MS)
         .build()
@@ -90,6 +116,37 @@ class LocalPlayerViewModel(application: Application) : AndroidViewModel(applicat
     private val _activePlaybackTracks = MutableStateFlow<List<LocalTrack>>(emptyList())
     val activePlaybackTracks: StateFlow<List<LocalTrack>> = _activePlaybackTracks.asStateFlow()
 
+    val playingQueue: StateFlow<List<LocalTrack>> = _activePlaybackTracks.asStateFlow()
+
+    // Persistent Storage Access Framework (SAF) folder permission management
+    private val safPrefs = application.getSharedPreferences("audio_aurora_saf_prefs", Context.MODE_PRIVATE)
+
+    private val _folderPermissionGranted = MutableStateFlow(hasFolderPermission())
+    val folderPermissionGranted: StateFlow<Boolean> = _folderPermissionGranted.asStateFlow()
+
+    fun getSavedFolderTreeUri(): Uri? {
+        val uriStr = safPrefs.getString(KEY_MUSIC_FOLDER_TREE_URI, null) ?: return null
+        return Uri.parse(uriStr)
+    }
+
+    fun hasFolderPermission(): Boolean {
+        val treeUri = getSavedFolderTreeUri() ?: return false
+        val permissions = getApplication<Application>().contentResolver.persistedUriPermissions
+        return permissions.any { it.uri == treeUri && it.isWritePermission }
+    }
+
+    fun saveFolderTreeUri(uri: Uri) {
+        val context = getApplication<Application>()
+        val takeFlags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+        try {
+            context.contentResolver.takePersistableUriPermission(uri, takeFlags)
+            safPrefs.edit().putString(KEY_MUSIC_FOLDER_TREE_URI, uri.toString()).apply()
+            _folderPermissionGranted.value = true
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
     private val _currentTrackIndex = MutableStateFlow(-1)
     val currentTrackIndex: StateFlow<Int> = _currentTrackIndex.asStateFlow()
 
@@ -105,10 +162,23 @@ class LocalPlayerViewModel(application: Application) : AndroidViewModel(applicat
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
+    // Thread-safe memory cache for extracted artwork colors: key -> ARGB Long
+    private val paletteColorCache = ConcurrentHashMap<String, Long>()
+
+    // Current accent color (defaults to Light Pink #FFB6C1)
+    private val _accentColor = MutableStateFlow(DEFAULT_ACCENT_COLOR)
+    val accentColor: StateFlow<Long> = _accentColor.asStateFlow()
+
+    // Observable playback state consumed directly by Compose UI and notifications
+    val playerState: StateFlow<PlayerState> = MusicStateBridge.playerState
+
     private var playlistSynced = false
 
     private fun updatePlayingState() {
-        val shouldPlay = player.playWhenReady && player.playbackState != Player.STATE_ENDED
+        val shouldPlay = player.playWhenReady &&
+            player.playbackState != Player.STATE_ENDED &&
+            player.playbackState != Player.STATE_IDLE &&
+            player.mediaItemCount > 0
         if (_isPlaying.value != shouldPlay) {
             _isPlaying.value = shouldPlay
             if (shouldPlay) {
@@ -134,11 +204,21 @@ class LocalPlayerViewModel(application: Application) : AndroidViewModel(applicat
             updatePlayingState()
             if (playbackState == Player.STATE_READY) {
                 _durationMs.value = player.duration.coerceAtLeast(0L)
+            } else if (playbackState == Player.STATE_ENDED) {
+                // Auto-Continue: When the custom queue finishes, automatically play the next song from main library
+                if (!player.hasNextMediaItem()) {
+                    autoContinueFromLibrary()
+                }
+            } else if (playbackState == Player.STATE_IDLE) {
+                if (player.mediaItemCount == 0) {
+                    _durationMs.value = 0L
+                    _positionMs.value = 0L
+                }
             }
         }
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-            _currentTrackIndex.value = player.currentMediaItemIndex
+            _currentTrackIndex.value = if (player.mediaItemCount > 0) player.currentMediaItemIndex else -1
             _positionMs.value = 0L
             updatePlayingState()
         }
@@ -155,27 +235,36 @@ class LocalPlayerViewModel(application: Application) : AndroidViewModel(applicat
             }
         }
 
+        // Dynamically extract Palette accent color on Dispatchers.IO when the active track changes
+        viewModelScope.launch {
+            combine(_activePlaybackTracks, _currentTrackIndex) { activeQueue, index ->
+                activeQueue.getOrNull(index)
+            }.distinctUntilChanged()
+             .collectLatest { track ->
+                 val extractedColor = extractAccentColor(track)
+                 _accentColor.value = extractedColor
+             }
+        }
+
         // Synchronize player state with MusicStateBridge for custom RemoteViews notification
         viewModelScope.launch {
             combine(
                 _activePlaybackTracks,
-                _tracks,
                 _currentTrackIndex,
                 _isPlaying,
                 _positionMs,
-                _durationMs
+                _durationMs,
+                _accentColor
             ) { args: Array<Any?> ->
                 @Suppress("UNCHECKED_CAST")
                 val activeQueue = args[0] as List<LocalTrack>
-                @Suppress("UNCHECKED_CAST")
-                val libraryTracks = args[1] as List<LocalTrack>
-                val index = args[2] as Int
-                val isPlaying = args[3] as Boolean
-                val pos = args[4] as Long
-                val dur = args[5] as Long
+                val index = args[1] as Int
+                val isPlaying = args[2] as Boolean
+                val pos = args[3] as Long
+                val dur = args[4] as Long
+                val accent = args[5] as Long
 
-                val currentQueue = if (activeQueue.isNotEmpty()) activeQueue else libraryTracks
-                val track = currentQueue.getOrNull(index)
+                val track = activeQueue.getOrNull(index)
                 PlayerState(
                     title = track?.title ?: "",
                     artist = track?.artist ?: "",
@@ -184,9 +273,10 @@ class LocalPlayerViewModel(application: Application) : AndroidViewModel(applicat
                     isPlaying = isPlaying,
                     positionMs = pos,
                     durationMs = dur,
-                    queueSize = currentQueue.size,
-                    hasNext = index < currentQueue.lastIndex,
-                    hasPrevious = index > 0
+                    queueSize = activeQueue.size,
+                    hasNext = index in 0 until activeQueue.lastIndex,
+                    hasPrevious = index > 0,
+                    accentColor = accent
                 )
             }.collectLatest { state ->
                 MusicStateBridge.updateState(state)
@@ -201,7 +291,13 @@ class LocalPlayerViewModel(application: Application) : AndroidViewModel(applicat
                 MusicAction.REWIND -> rewind()
                 MusicAction.FAST_FORWARD -> fastForward()
                 MusicAction.NEXT -> skipToNext()
-                MusicAction.QUEUE -> setPlaylistTab(1)
+                MusicAction.QUEUE -> setPlaylistTab(2)
+                MusicAction.STOP -> {
+                    player.stop()
+                    player.clearMediaItems()
+                    _isPlaying.value = false
+                    updatePlayingState()
+                }
             }
         }
     }
@@ -245,9 +341,6 @@ class LocalPlayerViewModel(application: Application) : AndroidViewModel(applicat
             _isLoading.value = true
             val loaded = queryTracksFromMediaStore()
             _tracks.value = loaded
-            if (_activePlaybackTracks.value.isEmpty()) {
-                setPlayerQueue(loaded)
-            }
             refreshPlaylistsInternal(loaded)
             _isLoading.value = false
         }
@@ -420,62 +513,171 @@ class LocalPlayerViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     /**
-     * Deletes a track from device storage and MediaStore.
+     * Deletes a downloaded track from device storage silently.
+     * 1. Stops playback and removes the track from ExoPlayer to release file locks.
+     * 2. Resolves the track via Storage Access Framework (SAF) using the persisted tree URI
+     *    and calls DocumentFile.delete() to delete without any Android 11+ system prompts.
+     * 3. Falls back to standard File.delete() / ContentResolver.delete() if no tree URI is stored.
+     * 4. Synchronizes Library StateFlow immediately upon deletion.
      */
     fun deleteTrack(track: LocalTrack, onResult: ((Boolean) -> Unit)? = null) {
-        viewModelScope.launch(Dispatchers.IO) {
-            val context = getApplication<Application>()
-            var success = false
-            try {
-                // If currently playing this track, stop playback
-                val currentQueue = if (_activePlaybackTracks.value.isNotEmpty()) _activePlaybackTracks.value else _tracks.value
-                val activeTrack = currentQueue.getOrNull(_currentTrackIndex.value)
-                if (activeTrack?.id == track.id) {
-                    withContext(Dispatchers.Main) {
-                        player.stop()
-                    }
-                }
-
-                // 1. Delete from MediaStore database
-                val rows = try {
-                    context.contentResolver.delete(track.contentUri, null, null)
-                } catch (_: Exception) {
-                    0
-                }
-
-                // 2. Locate and delete physical file directly if possible
-                val filePath = when {
-                    track.contentUri.scheme == "file" -> track.contentUri.path
-                    else -> getFilePathFromUri(context, track.contentUri)
-                }
-
-                var fileDeleted = false
-                if (filePath != null) {
-                    val file = File(filePath)
-                    if (file.exists()) {
-                        fileDeleted = file.delete()
-                    }
-                    MediaScannerConnection.scanFile(context, arrayOf(filePath), null, null)
-                }
-
-                success = rows > 0 || fileDeleted
-
-                // 3. Refresh in-memory lists
-                val updated = queryTracksFromMediaStore()
-                withContext(Dispatchers.Main) {
-                    _tracks.value = updated
-                    if (_activePlaybackTracks.value.any { it.id == track.id }) {
-                        setPlayerQueue(_activePlaybackTracks.value.filter { it.id != track.id })
-                    }
-                }
-                refreshPlaylistsInternal(updated)
-            } catch (e: Exception) {
-                e.printStackTrace()
+        viewModelScope.launch {
+            // -----------------------------------------------------------------
+            // STEP 1: RELEASE EXOPLAYER LOCKS
+            // -----------------------------------------------------------------
+            val currentItem = player.currentMediaItem
+            val isCurrentTrack = currentItem != null && (
+                currentItem.localConfiguration?.uri == track.contentUri ||
+                currentItem.mediaId == track.id.toString()
+            )
+            if (isCurrentTrack) {
+                player.stop()
             }
-            if (onResult != null) {
-                withContext(Dispatchers.Main) {
-                    onResult(success)
+
+            // Loop backwards through player's queue so index shifts don't skip items
+            for (i in player.mediaItemCount - 1 downTo 0) {
+                val mediaItem = player.getMediaItemAt(i)
+                val matchesUri = mediaItem.localConfiguration?.uri == track.contentUri
+                val matchesId = mediaItem.mediaId == track.id.toString()
+                if (matchesUri || matchesId) {
+                    player.removeMediaItem(i)
                 }
+            }
+
+            // Synchronize ViewModel active queue
+            val updatedQueue = _activePlaybackTracks.value.filter {
+                it.id != track.id && it.contentUri != track.contentUri
+            }
+            _activePlaybackTracks.value = updatedQueue
+
+            if (updatedQueue.isEmpty() || player.mediaItemCount == 0) {
+                clearQueue()
+            } else {
+                _currentTrackIndex.value = player.currentMediaItemIndex
+                updatePlayingState()
+            }
+
+            // -----------------------------------------------------------------
+            // STEP 2: STRICT DOCUMENTFILE SILENT DELETION (ZERO CONTENTRESOLVER.DELETE)
+            // -----------------------------------------------------------------
+            val context = getApplication<Application>()
+            val deleteSuccess = withContext(Dispatchers.IO) {
+                try {
+                    // 1. Retrieve the saved Tree URI string
+                    val savedUriString = safPrefs.getString(KEY_MUSIC_FOLDER_TREE_URI, null)
+                    if (savedUriString.isNullOrBlank()) {
+                        android.util.Log.e("AudioAurora", "No saved folder Tree URI found. Cannot delete track without folder access.")
+                        return@withContext false
+                    }
+
+                    // 2. Convert to Uri and build root document
+                    val treeUri = Uri.parse(savedUriString)
+                    val rootDoc = DocumentFile.fromTreeUri(context, treeUri)
+                    if (rootDoc == null || !rootDoc.exists()) {
+                        android.util.Log.e("AudioAurora", "Root DocumentFile does not exist for URI: $treeUri")
+                        return@withContext false
+                    }
+
+                    // 3. Locate target file (including in subdirectories)
+                    val filePath = getFilePathFromUri(context, track.contentUri) ?: track.contentUri.path
+                    val targetDocFile = findDocumentFileInTree(rootDoc, track, filePath)
+
+                    // 4. Handle nulls safely: DO NOT fall back to contentResolver.delete()
+                    if (targetDocFile == null || !targetDocFile.exists()) {
+                        android.util.Log.e("AudioAurora", "Target file not found in granted folder tree: ${track.displayName}")
+                        return@withContext false
+                    }
+
+                    // 5. Delete solely via DocumentFile
+                    val deleted = targetDocFile.delete()
+
+                    // 6. Notify MediaScanner to purge the entry from Android's MediaStore index
+                    if (filePath != null) {
+                        MediaScannerConnection.scanFile(context, arrayOf(filePath), null, null)
+                    }
+
+                    deleted
+                } catch (e: Exception) {
+                    android.util.Log.e("AudioAurora", "Exception while deleting via DocumentFile", e)
+                    false
+                }
+            }
+
+            // -----------------------------------------------------------------
+            // STEP 3: STATE SYNCHRONIZATION
+            // -----------------------------------------------------------------
+            if (deleteSuccess) {
+                onTrackDeletedSuccessfully(track)
+            }
+
+            onResult?.invoke(deleteSuccess)
+        }
+    }
+
+    /**
+     * Resolves a [DocumentFile] for a [LocalTrack] within the user-authorized directory tree.
+     * Searches root directly, checks immediate parent directory, and traverses subdirectories.
+     */
+    private fun findDocumentFileInTree(
+        rootTree: DocumentFile,
+        track: LocalTrack,
+        filePath: String?
+    ): DocumentFile? {
+        val targetName = track.displayName.takeIf { it.isNotBlank() }
+            ?: (filePath?.let { File(it).name })
+            ?: "${track.title}.flac"
+
+        // 1. Direct search in root folder (e.g. Music/song.flac)
+        val directFile = rootTree.findFile(targetName)
+        if (directFile != null && directFile.exists()) {
+            return directFile
+        }
+
+        // 2. Relative subfolder search (e.g. Music/Playlists/Rock/song.flac)
+        if (filePath != null) {
+            val file = File(filePath)
+            val parentName = file.parentFile?.name
+            if (parentName != null && parentName != "Music") {
+                val subFolder = rootTree.findFile(parentName)
+                if (subFolder != null && subFolder.isDirectory) {
+                    val subFile = subFolder.findFile(targetName)
+                    if (subFile != null && subFile.exists()) {
+                        return subFile
+                    }
+                }
+            }
+        }
+
+        // 3. Search child directories recursively
+        return findFileRecursive(rootTree, targetName)
+    }
+
+    private fun findFileRecursive(dir: DocumentFile, targetName: String): DocumentFile? {
+        for (item in dir.listFiles()) {
+            if (item.isFile && item.name.equals(targetName, ignoreCase = true)) {
+                return item
+            } else if (item.isDirectory) {
+                val found = findFileRecursive(item, targetName)
+                if (found != null) return found
+            }
+        }
+        return null
+    }
+
+    /**
+     * Called when a track has been deleted successfully (after silent DocumentFile deletion
+     * or legacy deletion). Immediately updates the Library and Playlists StateFlows for the Compose UI.
+     */
+    fun onTrackDeletedSuccessfully(track: LocalTrack) {
+        _tracks.value = _tracks.value.filter { it.id != track.id }
+        _playlists.value = _playlists.value.map { playlist ->
+            if (playlist.tracks.any { it.id == track.id }) {
+                playlist.copy(
+                    tracks = playlist.tracks.filter { it.id != track.id },
+                    trackCount = (playlist.trackCount - 1).coerceAtLeast(0)
+                )
+            } else {
+                playlist
             }
         }
     }
@@ -536,39 +738,30 @@ class LocalPlayerViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     /**
-     * Starts playback of a track at [index] within the device library.
+     * Starts playback of a specific single [track] from the library.
+     * Clears any existing queue and sets *just that single track* as the queue.
      */
-    fun playTrack(index: Int) {
-        val trackList = _tracks.value
-        if (index !in trackList.indices) return
-        if (_activePlaybackTracks.value != trackList || !playlistSynced) {
-            setPlayerQueue(trackList)
-        }
-
-        if (player.currentMediaItemIndex == index && player.playbackState != Player.STATE_IDLE) {
-            player.play()
-        } else {
-            player.seekTo(index, 0L)
-            player.prepare()
-            player.play()
-        }
-        _currentTrackIndex.value = index
+    fun playTrack(track: LocalTrack) {
+        setPlayerQueue(listOf(track))
+        player.seekTo(0, 0L)
+        player.prepare()
+        player.play()
+        _currentTrackIndex.value = 0
         _positionMs.value = 0L
     }
 
     /**
-     * Starts playback of a specific [track], finding its position in the library queue.
+     * Starts playback of a track at [index] within the device library.
+     * Clears any existing queue and sets *just that single track* as the queue.
      */
-    fun playTrack(track: LocalTrack) {
-        val trackList = _tracks.value
-        val index = trackList.indexOfFirst { it.id == track.id }
-        if (index >= 0) {
-            playTrack(index)
-        }
+    fun playTrack(index: Int) {
+        val track = _tracks.value.getOrNull(index) ?: return
+        playTrack(track)
     }
 
     /**
      * Starts playback of a track at [index] within a specific folder playlist.
+     * Sets the entire playlist's tracks as the queue context and jumps to [index].
      */
     fun playPlaylistTrack(playlist: FolderPlaylist, index: Int) {
         if (index !in playlist.tracks.indices) return
@@ -581,28 +774,185 @@ class LocalPlayerViewModel(application: Application) : AndroidViewModel(applicat
         _positionMs.value = 0L
     }
 
+    private fun LocalTrack.toMediaItem(): MediaItem =
+        MediaItem.Builder()
+            .setUri(contentUri)
+            .setMediaId(id.toString())
+            .setMediaMetadata(
+                MediaMetadata.Builder()
+                    .setTitle(title)
+                    .setArtist(artist)
+                    .setAlbumTitle(album)
+                    .build()
+            )
+            .build()
+
     private fun setPlayerQueue(trackList: List<LocalTrack>) {
-        if (trackList.isEmpty()) return
-        val mediaItems = trackList.map { track ->
-            MediaItem.Builder()
-                .setUri(track.contentUri)
-                .setMediaMetadata(
-                    MediaMetadata.Builder()
-                        .setTitle(track.title)
-                        .setArtist(track.artist)
-                        .setAlbumTitle(track.album)
-                        .build()
-                )
-                .build()
+        if (trackList.isEmpty()) {
+            clearQueue()
+            return
         }
+        val mediaItems = trackList.map { it.toMediaItem() }
         player.setMediaItems(mediaItems)
         _activePlaybackTracks.value = trackList
         playlistSynced = true
     }
 
+    /**
+     * Injects a list of tracks immediately after the currently playing song in the ExoPlayer playlist.
+     * Uses player.addMediaItems(insertIndex, mediaItems) to dynamically update ExoPlayer's Timeline
+     * without interrupting or restarting the current audio stream.
+     */
+    fun playNext(tracksToInject: List<LocalTrack>) {
+        if (tracksToInject.isEmpty()) return
+
+        val currentQueue = _activePlaybackTracks.value.toMutableList()
+
+        if (currentQueue.isEmpty() || player.playbackState == Player.STATE_IDLE) {
+            setPlayerQueue(tracksToInject)
+            playTrack(tracksToInject.first())
+            return
+        }
+
+        // Calculate current playing index and insert position
+        val currentIndex = player.currentMediaItemIndex.takeIf { it in currentQueue.indices } ?: 0
+        val insertIndex = (currentIndex + 1).coerceAtMost(currentQueue.size)
+
+        val mediaItems = tracksToInject.map { it.toMediaItem() }
+        // Seamlessly inject into ExoPlayer timeline without disturbing current audio sink
+        player.addMediaItems(insertIndex, mediaItems)
+
+        currentQueue.addAll(insertIndex, tracksToInject)
+        _activePlaybackTracks.value = currentQueue
+        playlistSynced = true
+    }
+
+    /**
+     * Injects a single track immediately after the currently playing song.
+     */
+    fun playTrackNext(track: LocalTrack) {
+        playNext(listOf(track))
+    }
+
+    /**
+     * Convenience method to inject an entire FolderPlaylist to play next.
+     */
+    fun playPlaylistNext(playlist: FolderPlaylist) {
+        playNext(playlist.tracks)
+    }
+
+    /**
+     * Appends a list of tracks to the end of the current ExoPlayer queue.
+     */
+    fun enqueue(tracksToAppend: List<LocalTrack>) {
+        if (tracksToAppend.isEmpty()) return
+
+        val currentQueue = _activePlaybackTracks.value.toMutableList()
+
+        if (currentQueue.isEmpty() || player.playbackState == Player.STATE_IDLE) {
+            setPlayerQueue(tracksToAppend)
+            playTrack(tracksToAppend.first())
+            return
+        }
+
+        val insertIndex = currentQueue.size
+        val mediaItems = tracksToAppend.map { it.toMediaItem() }
+        player.addMediaItems(insertIndex, mediaItems)
+
+        currentQueue.addAll(tracksToAppend)
+        _activePlaybackTracks.value = currentQueue
+        playlistSynced = true
+    }
+
+    fun enqueueTrack(track: LocalTrack) {
+        enqueue(listOf(track))
+    }
+
+    fun enqueuePlaylist(playlist: FolderPlaylist) {
+        enqueue(playlist.tracks)
+    }
+
+    /**
+     * Reorders an item in the playing queue from [fromIndex] to [toIndex].
+     * Synchronizes directly with ExoPlayer's playlist via player.moveMediaItem() and updates StateFlow.
+     */
+    fun moveQueueItem(fromIndex: Int, toIndex: Int) {
+        val currentQueue = _activePlaybackTracks.value.toMutableList()
+
+        if (fromIndex !in currentQueue.indices || toIndex !in currentQueue.indices || fromIndex == toIndex) return
+
+        // 1. Update ExoPlayer's internal playlist timeline
+        player.moveMediaItem(fromIndex, toIndex)
+
+        // 2. Synchronize ViewModel state
+        val item = currentQueue.removeAt(fromIndex)
+        currentQueue.add(toIndex, item)
+        _activePlaybackTracks.value = currentQueue
+        _currentTrackIndex.value = player.currentMediaItemIndex
+        playlistSynced = true
+    }
+
+    /**
+     * Removes an item at [index] from the playing queue.
+     * Updates ExoPlayer via player.removeMediaItem() and updates StateFlow.
+     */
+    fun removeQueueItem(index: Int) {
+        val currentQueue = _activePlaybackTracks.value.toMutableList()
+        if (index !in currentQueue.indices) return
+
+        if (index in 0 until player.mediaItemCount) {
+            player.removeMediaItem(index)
+        }
+        currentQueue.removeAt(index)
+        _activePlaybackTracks.value = currentQueue
+
+        if (currentQueue.isEmpty()) {
+            player.stop()
+            player.clearMediaItems()
+            _currentTrackIndex.value = -1
+            _positionMs.value = 0L
+            _durationMs.value = 0L
+            _isPlaying.value = false
+            playlistSynced = false
+        } else {
+            _currentTrackIndex.value = player.currentMediaItemIndex
+        }
+    }
+
+    /**
+     * Clears all tracks from the queue, stops ExoPlayer, and resets playback state.
+     */
+    fun clearQueue() {
+        player.stop()
+        player.clearMediaItems()
+        _activePlaybackTracks.value = emptyList()
+        _currentTrackIndex.value = -1
+        _positionMs.value = 0L
+        _durationMs.value = 0L
+        _isPlaying.value = false
+        playlistSynced = false
+    }
+
+    /**
+     * Plays a specific track from the queue at [index].
+     */
+    fun playQueueTrack(index: Int) {
+        val currentQueue = _activePlaybackTracks.value
+        if (index !in currentQueue.indices) return
+
+        if (!playlistSynced) {
+            setPlayerQueue(currentQueue)
+        }
+        player.seekTo(index, 0L)
+        player.prepare()
+        player.play()
+        _currentTrackIndex.value = index
+        _positionMs.value = 0L
+    }
+
     /** Toggles between play and pause. */
     fun togglePlayPause() {
-        val currentQueue = if (_activePlaybackTracks.value.isNotEmpty()) _activePlaybackTracks.value else _tracks.value
+        val currentQueue = _activePlaybackTracks.value
         when {
             player.playWhenReady -> player.pause()
             currentQueue.isEmpty() -> Unit
@@ -610,7 +960,7 @@ class LocalPlayerViewModel(application: Application) : AndroidViewModel(applicat
                 val startIndex = _currentTrackIndex.value
                     .takeIf { it in currentQueue.indices }
                     ?: 0
-                playTrack(startIndex)
+                playQueueTrack(startIndex)
             }
             else -> {
                 player.prepare()
@@ -647,17 +997,47 @@ class LocalPlayerViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     /**
-     * Rewinds playback by 10 seconds (10,000 ms).
-     * Includes boundary check to ensure the target position never drops below 0 (0:00).
+     * Rewinds playback safely by 10 seconds (10,000 ms).
+     * Uses Kotlin's coerceAtLeast(0L) to guarantee ExoPlayer never receives a negative position.
      */
-    fun rewind(incrementMs: Long = SEEK_INCREMENT_MS) {
-        if (player.playbackState == Player.STATE_IDLE || player.currentMediaItemIndex < 0) return
+    fun rewind() {
+        val currentPos = player.currentPosition
+        val newPos = (currentPos - 10000L).coerceAtLeast(0L)
+        player.seekTo(newPos)
+        _positionMs.value = newPos
+    }
 
-        val currentPos = player.currentPosition.coerceAtLeast(0L)
-        val targetPosition = (currentPos - incrementMs).coerceAtLeast(0L)
+    /**
+     * Auto-Continue: Seamlessly transitions to the next track in the main library
+     * when the custom queue has finished playing.
+     */
+    fun autoContinueFromLibrary() {
+        val mainLibraryList = _tracks.value
+        if (mainLibraryList.isEmpty()) return
 
-        player.seekTo(targetPosition)
-        _positionMs.value = targetPosition
+        val currentTrack = _activePlaybackTracks.value.getOrNull(_currentTrackIndex.value)
+            ?: _activePlaybackTracks.value.lastOrNull()
+        val currentLibIndex = if (currentTrack != null) {
+            mainLibraryList.indexOfFirst { it.id == currentTrack.id || it.contentUri == currentTrack.contentUri }
+        } else {
+            -1
+        }
+        val nextIndex = if (currentLibIndex != -1) {
+            (currentLibIndex + 1) % mainLibraryList.size
+        } else {
+            0
+        }
+        val nextTrack = mainLibraryList[nextIndex]
+        val nextMediaItem = nextTrack.toMediaItem()
+
+        player.setMediaItem(nextMediaItem)
+        _activePlaybackTracks.value = listOf(nextTrack)
+        _currentTrackIndex.value = 0
+        _positionMs.value = 0L
+        playlistSynced = true
+
+        player.prepare()
+        player.play()
     }
 
     fun skipToNext() {
@@ -665,15 +1045,66 @@ class LocalPlayerViewModel(application: Application) : AndroidViewModel(applicat
             player.seekToNextMediaItem()
             player.prepare()
             player.play()
+        } else {
+            autoContinueFromLibrary()
         }
     }
 
-    fun skipToPrevious() {
-        if (player.hasPreviousMediaItem()) {
-            player.seekToPreviousMediaItem()
-            player.prepare()
-            player.play()
+    /**
+     * Custom Previous Track action for the |< button:
+     * 1. If playback is past 3 seconds (> 3,000 ms), restarts the current song to 0:00.
+     * 2. If <= 3 seconds, manually calculates the previous index in the active queue or main library,
+     *    safely wrapping around to the end of the list if at the first song.
+     */
+    fun skipToPreviousTrack() {
+        if (player.playbackState == Player.STATE_IDLE && player.mediaItemCount == 0) return
+
+        // 1. Standard 3-second restart threshold
+        if (player.currentPosition > 3000L) {
+            player.seekTo(0L)
+            _positionMs.value = 0L
+            return
         }
+
+        // 2. Resolve active list: current queue if multiple tracks, otherwise full device library
+        val currentQueue = _activePlaybackTracks.value
+        val mainLibraryList = _tracks.value
+        val currentList = if (currentQueue.size > 1) currentQueue else mainLibraryList
+
+        if (currentList.isEmpty()) return
+
+        // 3. Find current track index in the active list
+        val currentTrack = currentQueue.getOrNull(_currentTrackIndex.value) ?: currentQueue.firstOrNull()
+        val currentIndex = if (currentTrack != null) {
+            currentList.indexOfFirst { it.id == currentTrack.id || it.contentUri == currentTrack.contentUri }
+        } else {
+            _currentTrackIndex.value
+        }
+
+        // 4. Calculate previous index with wraparound
+        val prevIndex = if (currentIndex > 0) currentIndex - 1 else currentList.size - 1
+        val prevTrack = currentList[prevIndex]
+
+        if (currentQueue.size > 1 && player.mediaItemCount > 1 && prevIndex in 0 until player.mediaItemCount) {
+            // Within an existing multi-song ExoPlayer queue
+            player.seekTo(prevIndex, 0L)
+            _currentTrackIndex.value = prevIndex
+        } else {
+            // Single track or library context: load previous track MediaItem
+            val mediaItem = prevTrack.toMediaItem()
+            player.setMediaItem(mediaItem)
+            _activePlaybackTracks.value = listOf(prevTrack)
+            _currentTrackIndex.value = 0
+            playlistSynced = true
+        }
+
+        _positionMs.value = 0L
+        player.prepare()
+        player.play()
+    }
+
+    fun skipToPrevious() {
+        skipToPreviousTrack()
     }
 
     private fun queryTracksFromMediaStore(): List<LocalTrack> {
@@ -793,14 +1224,145 @@ class LocalPlayerViewModel(application: Application) : AndroidViewModel(applicat
         return tracks
     }
 
+    /**
+     * Extracts a contrast-safe accent color from the track's album artwork using AndroidX Palette.
+     * Executes strictly on [Dispatchers.IO] to keep the Main / UI thread silky smooth.
+     *
+     * Bitmap Decoding Pipeline:
+     * 1. Android 10+ (API 29+): MediaStore loadThumbnail directly from audio contentUri.
+     * 2. Android 9+ (API 28+): ImageDecoder with ALLOCATOR_SOFTWARE (prevents Palette hardware bitmap crash).
+     * 3. BitmapFactory.decodeStream via ContentResolver openInputStream.
+     * 4. MediaMetadataRetriever embedded picture fallback for standalone audio files.
+     *
+     * Contrast Safety:
+     * - Evaluates against #222222 dark background.
+     * - Prefers LightVibrant or LightMuted swatches.
+     * - Allows Vibrant or Dominant swatch only if contrast ratio >= 3.0 against #222222.
+     * - Gracefully falls back to default Light Pink (#FFB6C1).
+     */
+    /**
+     * Decodes the album artwork into a software-compatible Bitmap.
+     * Ensures all file streams, file descriptors, and native metadata retrievers
+     * are strictly closed immediately via `.use { }` and `try-finally` blocks.
+     */
+    private fun decodeTrackBitmap(track: LocalTrack): Bitmap? {
+        val context = getApplication<Application>()
+
+        // 1. Decode dedicated album art image if albumArtUri is present
+        if (track.albumArtUri != null) {
+            // Android 10+ (API 29+): MediaStore thumbnail loader for images
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                try {
+                    return context.contentResolver.loadThumbnail(track.albumArtUri, Size(256, 256), null)
+                } catch (_: Exception) {}
+            }
+
+            // Android 9+ (API 28+): ImageDecoder with ALLOCATOR_SOFTWARE
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                try {
+                    val source = ImageDecoder.createSource(context.contentResolver, track.albumArtUri)
+                    return ImageDecoder.decodeBitmap(source) { decoder, _, _ ->
+                        decoder.setTargetSampleSize(2)
+                        decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+                    }
+                } catch (_: Exception) {}
+            }
+
+            // Fallback: ContentResolver openInputStream wrapped in .use { }
+            try {
+                context.contentResolver.openInputStream(track.albumArtUri)?.use { stream ->
+                    val options = BitmapFactory.Options().apply { inSampleSize = 2 }
+                    val decoded = BitmapFactory.decodeStream(stream, null, options)
+                    if (decoded != null) return decoded
+                }
+            } catch (_: Exception) {}
+        }
+
+        // 2. Embedded picture in standalone audio file (FLAC / MP3) via MediaMetadataRetriever
+        // Wrapped strictly in try-finally with retriever.release() and .use { } for File/FD scopes
+        val mmr = MediaMetadataRetriever()
+        try {
+            val filePath = getFilePathFromUri(context, track.contentUri)
+                ?: if (track.contentUri.scheme == "file") track.contentUri.path else null
+
+            val rawBytes: ByteArray? = if (filePath != null && File(filePath).exists()) {
+                FileInputStream(filePath).use { fis ->
+                    mmr.setDataSource(fis.fd)
+                    mmr.embeddedPicture
+                }
+            } else {
+                context.contentResolver.openAssetFileDescriptor(track.contentUri, "r")?.use { afd ->
+                    mmr.setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
+                    mmr.embeddedPicture
+                }
+            }
+
+            if (rawBytes != null) {
+                val options = BitmapFactory.Options().apply { inSampleSize = 2 }
+                val decoded = BitmapFactory.decodeByteArray(rawBytes, 0, rawBytes.size, options)
+                if (decoded != null) return decoded
+            }
+        } catch (_: Exception) {
+            // Gracefully ignore extraction errors
+        } finally {
+            try {
+                mmr.release()
+            } catch (_: Exception) {}
+        }
+
+        return null
+    }
+
+    private suspend fun extractAccentColor(track: LocalTrack?): Long = withContext(Dispatchers.IO) {
+        if (track == null) return@withContext DEFAULT_ACCENT_COLOR
+
+        val cacheKey = track.albumArtUri?.toString() ?: track.contentUri.toString()
+        paletteColorCache[cacheKey]?.let { return@withContext it }
+
+        // Immutable local val eliminating closure-capture smart-cast failures
+        val bitmap: Bitmap? = decodeTrackBitmap(track)
+
+        // Safe unwrapping guaranteeing a non-null Bitmap for Palette.from()
+        val extractedColor = bitmap?.let { nonNullBitmap ->
+            try {
+                val softwareBitmap = if (nonNullBitmap.config == Bitmap.Config.HARDWARE) {
+                    nonNullBitmap.copy(Bitmap.Config.ARGB_8888, false) ?: nonNullBitmap
+                } else {
+                    nonNullBitmap
+                }
+
+                val palette = Palette.from(softwareBitmap).generate()
+                val darkBg = 0xFF222222.toInt()
+
+                // Contrast Safety: LightVibrant/LightMuted or high-contrast swatches against #222222
+                val swatch = palette.lightVibrantSwatch
+                    ?: palette.lightMutedSwatch
+                    ?: palette.vibrantSwatch?.takeIf { ColorUtils.calculateContrast(it.rgb, darkBg) >= 3.0 }
+                    ?: palette.dominantSwatch?.takeIf { ColorUtils.calculateContrast(it.rgb, darkBg) >= 3.0 }
+
+                swatch?.rgb?.toLong()?.let { it and 0xFFFFFFFFL } ?: DEFAULT_ACCENT_COLOR
+            } catch (_: Exception) {
+                DEFAULT_ACCENT_COLOR
+            }
+        } ?: DEFAULT_ACCENT_COLOR
+
+        paletteColorCache[cacheKey] = extractedColor
+        extractedColor
+    }
+
     override fun onCleared() {
+        MusicStateBridge.onActionReceived = null
+        player.removeListener(playerListener)
+        player.stop()
         player.release()
         super.onCleared()
     }
 
     companion object {
+        private const val DEFAULT_ACCENT_COLOR = 0xFFFFB6C1L
         private const val POSITION_POLL_INTERVAL_MS = 500L
         private const val SEEK_INCREMENT_MS = 10_000L
         private val ALBUM_ART_URI: Uri = Uri.parse("content://media/external/audio/albumart")
+        private const val KEY_MUSIC_FOLDER_TREE_URI = "music_folder_tree_uri"
     }
 }

@@ -6,21 +6,30 @@ import android.os.Build
 import android.os.Bundle
 import android.widget.ScrollView
 import android.widget.TextView
+import android.content.Intent
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.compose.ui.platform.LocalContext
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.ui.res.painterResource
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Album
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material3.*
@@ -36,6 +45,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.audiodownloader.ui.components.GlassBackground
+import com.example.audiodownloader.ui.components.LocalNeomorphicAccent
 import com.example.audiodownloader.ui.components.NeumorphColors
 import com.example.audiodownloader.ui.components.neumorphicExtruded
 import com.example.audiodownloader.ui.components.neumorphicRecessed
@@ -69,12 +79,104 @@ class MainActivity : ComponentActivity() {
             checkAndRequestPermissions()
 
             setContent {
-                AudioDownloaderTheme {
+                val context = LocalContext.current
+                val playerState by localPlayerViewModel.playerState.collectAsStateWithLifecycle()
+                var showPermissionDialog by remember { mutableStateOf(false) }
+
+                // Storage Access Framework (SAF) folder picker for silent deletion
+                val folderPickerLauncher = rememberLauncherForActivityResult(
+                    contract = ActivityResultContracts.OpenDocumentTree()
+                ) { uri ->
+                    if (uri != null) {
+                        val takeFlags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                        try {
+                            context.contentResolver.takePersistableUriPermission(uri, takeFlags)
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        }
+                        localPlayerViewModel.saveFolderTreeUri(uri)
+                        Toast.makeText(context, "Music folder permission granted! Deletions are now silent.", Toast.LENGTH_SHORT).show()
+                    }
+                }
+
+                // Front-load folder permission check on app startup: trigger educational dialog first
+                LaunchedEffect(Unit) {
+                    if (context.contentResolver.persistedUriPermissions.isEmpty() || !localPlayerViewModel.hasFolderPermission()) {
+                        showPermissionDialog = true
+                    }
+                }
+
+                AudioAuroraTheme(accentColor = Color(playerState.accentColor)) {
                     MainAppScreen(
                         viewModel = viewModel,
                         localPlayerViewModel = localPlayerViewModel,
                         hasAudioPermission = hasAudioPermission
                     )
+
+                    // Educational Storage Setup Dialog
+                    if (showPermissionDialog) {
+                        AlertDialog(
+                            onDismissRequest = { showPermissionDialog = false },
+                            containerColor = NeumorphColors.Surface,
+                            shape = RoundedCornerShape(20.dp),
+                            icon = {
+                                Box(
+                                    modifier = Modifier
+                                        .size(48.dp)
+                                        .neumorphicExtruded(
+                                            cornerRadius = 24.dp,
+                                            backgroundColor = NeumorphColors.Surface
+                                        ),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Folder,
+                                        contentDescription = null,
+                                        tint = LocalNeomorphicAccent.current,
+                                        modifier = Modifier.size(26.dp)
+                                    )
+                                }
+                            },
+                            title = {
+                                Text(
+                                    text = "Storage Setup",
+                                    color = NeumorphColors.TextCream,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 18.sp
+                                )
+                            },
+                            text = {
+                                Text(
+                                    text = "Please choose which folder you want to use to store your music.",
+                                    color = NeumorphColors.TextMuted,
+                                    fontSize = 14.sp
+                                )
+                            },
+                            confirmButton = {
+                                Button(
+                                    onClick = {
+                                        showPermissionDialog = false
+                                        folderPickerLauncher.launch(null)
+                                    },
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = LocalNeomorphicAccent.current,
+                                        contentColor = NeumorphColors.Background
+                                    ),
+                                    shape = RoundedCornerShape(12.dp)
+                                ) {
+                                    Text(
+                                        text = "Choose Folder",
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            },
+                            dismissButton = {
+                                TextButton(onClick = { showPermissionDialog = false }) {
+                                    Text("Not Now", color = NeumorphColors.TextMuted)
+                                }
+                            }
+                        )
+                    }
                 }
             }
         } catch (t: Throwable) {
@@ -197,7 +299,7 @@ fun GlassTopAppBar() {
         Row(
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Music Disc Icon Logo Badge
+            // App Logo Badge
             Box(
                 modifier = Modifier
                     .size(46.dp)
@@ -208,11 +310,10 @@ fun GlassTopAppBar() {
                     ),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(
-                    imageVector = Icons.Default.Album,
-                    contentDescription = "Audio Aurora Music Disc Logo",
-                    tint = NeumorphColors.AccentCopper,
-                    modifier = Modifier.size(28.dp)
+                Image(
+                    painter = painterResource(id = R.drawable.app_logo),
+                    contentDescription = "Audio Aurora Logo",
+                    modifier = Modifier.size(30.dp)
                 )
             }
 
@@ -313,6 +414,7 @@ fun GlassNavigationItem(
             .padding(vertical = 10.dp, horizontal = 4.dp),
         contentAlignment = Alignment.Center
     ) {
+        val activeColor = LocalNeomorphicAccent.current
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -320,12 +422,12 @@ fun GlassNavigationItem(
             Icon(
                 imageVector = icon,
                 contentDescription = label,
-                tint = if (isSelected) NeumorphColors.AccentCopper else NeumorphColors.TextMuted,
+                tint = if (isSelected) activeColor else NeumorphColors.TextMuted,
                 modifier = Modifier.size(18.dp)
             )
             Text(
                 text = label,
-                color = if (isSelected) NeumorphColors.TextCream else NeumorphColors.TextMuted,
+                color = if (isSelected) activeColor else NeumorphColors.TextMuted,
                 fontSize = 13.sp,
                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
             )
@@ -334,14 +436,34 @@ fun GlassNavigationItem(
 }
 
 @Composable
-fun AudioDownloaderTheme(content: @Composable () -> Unit) {
-    MaterialTheme(
-        colorScheme = darkColorScheme(
-            primary = NeumorphColors.AccentCopper,
-            secondary = NeumorphColors.AccentWarmGold,
-            background = NeumorphColors.Background,
-            surface = NeumorphColors.Surface
-        ),
-        content = content
+fun AudioAuroraTheme(
+    accentColor: Color = Color(0xFFFFB6C1),
+    content: @Composable () -> Unit
+) {
+    val animatedAccentColor by animateColorAsState(
+        targetValue = accentColor,
+        animationSpec = tween(durationMillis = 500),
+        label = "GlobalAccentCrossfade"
     )
+
+    CompositionLocalProvider(
+        LocalNeomorphicAccent provides animatedAccentColor
+    ) {
+        MaterialTheme(
+            colorScheme = darkColorScheme(
+                primary = animatedAccentColor,
+                secondary = NeumorphColors.AccentWarmGold,
+                background = NeumorphColors.Background,
+                surface = NeumorphColors.Surface
+            ),
+            content = content
+        )
+    }
 }
+
+// Backward-compatible wrapper
+@Composable
+fun AudioDownloaderTheme(
+    accentColor: Color = Color(0xFFFFB6C1),
+    content: @Composable () -> Unit
+) = AudioAuroraTheme(accentColor = accentColor, content = content)

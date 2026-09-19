@@ -1,7 +1,7 @@
 [
     {
-        "merged": "com.example.audiodownloader.app-debug-4:/drawable_ic_waveform_frame3.xml.flat",
-        "source": "com.example.audiodownloader.app-main-6:/drawable/ic_waveform_frame3.xml"
+        "merged": "C:\\Users\\piyus\\.gradle\\daemon\\8.9\\com.example.audiodownloader.app-debug-4:\\drawable_ic_waveform_frame2.xml.flat",
+        "source": "C:\\Users\\piyus\\.gradle\\daemon\\8.9\\com.example.audiodownloader.app-main-6:\\drawable\\ic_waveform_frame2.xml"
     },
     {
         "merged": "C:\\Users\\piyus\\.gradle\\daemon\\8.9\\com.example.audiodownloader.app-debug-4:\\drawable_ic_next.xml.flat",
@@ -14,6 +14,10 @@
     {
         "merged": "C:\\Users\\piyus\\.gradle\\daemon\\8.9\\com.example.audiodownloader.app-debug-4:\\drawable_ic_launcher.xml.flat",
         "source": "C:\\Users\\piyus\\.gradle\\daemon\\8.9\\com.example.audiodownloader.app-main-6:\\drawable\\ic_launcher.xml"
+    },
+    {
+        "merged": "C:\\Users\\piyus\\.gradle\\daemon\\8.9\\com.example.audiodownloader.app-debug-4:\\drawable_anim_equalizer.xml.flat",
+        "source": "C:\\Users\\piyus\\.gradle\\daemon\\8.9\\com.example.audiodownloader.app-main-6:\\drawable\\anim_equalizer.xml"
     },
     {
         "merged": "C:\\Users\\piyus\\.gradle\\daemon\\8.9\\com.example.audiodownloader.app-debug-4:\\layout_notification_collapsed.xml.flat",
@@ -36,24 +40,24 @@
         "source": "C:\\Users\\piyus\\.gradle\\daemon\\8.9\\com.example.audiodownloader.app-main-6:\\drawable\\bg_notif_recessed.xml"
     },
     {
-        "merged": "com.example.audiodownloader.app-debug-4:/drawable_ic_waveform_frame1.xml.flat",
-        "source": "com.example.audiodownloader.app-main-6:/drawable/ic_waveform_frame1.xml"
+        "merged": "com.example.audiodownloader.app-debug-4:/drawable_splash_background.xml.flat",
+        "source": "com.example.audiodownloader.app-main-6:/drawable/splash_background.xml"
+    },
+    {
+        "merged": "C:\\Users\\piyus\\.gradle\\daemon\\8.9\\com.example.audiodownloader.app-debug-4:\\drawable_ic_waveform_frame3.xml.flat",
+        "source": "C:\\Users\\piyus\\.gradle\\daemon\\8.9\\com.example.audiodownloader.app-main-6:\\drawable\\ic_waveform_frame3.xml"
     },
     {
         "merged": "C:\\Users\\piyus\\.gradle\\daemon\\8.9\\com.example.audiodownloader.app-debug-4:\\drawable_ic_play.xml.flat",
         "source": "C:\\Users\\piyus\\.gradle\\daemon\\8.9\\com.example.audiodownloader.app-main-6:\\drawable\\ic_play.xml"
     },
     {
-        "merged": "com.example.audiodownloader.app-debug-4:/drawable_ic_waveform_frame4.xml.flat",
-        "source": "com.example.audiodownloader.app-main-6:/drawable/ic_waveform_frame4.xml"
+        "merged": "C:\\Users\\piyus\\.gradle\\daemon\\8.9\\com.example.audiodownloader.app-debug-4:\\drawable_ic_launcher.png.flat",
+        "source": "C:\\Users\\piyus\\.gradle\\daemon\\8.9\\com.example.audiodownloader.app-main-6:\\drawable\\ic_launcher.png"
     },
     {
         "merged": "C:\\Users\\piyus\\.gradle\\daemon\\8.9\\com.example.audiodownloader.app-debug-4:\\drawable_ic_waveform_frozen.xml.flat",
         "source": "C:\\Users\\piyus\\.gradle\\daemon\\8.9\\com.example.audiodownloader.app-main-6:\\drawable\\ic_waveform_frozen.xml"
-    },
-    {
-        "merged": "com.example.audiodownloader.app-debug-4:/drawable_ic_waveform_frame2.xml.flat",
-        "source": "com.example.audiodownloader.app-main-6:/drawable/ic_waveform_frame2.xml"
     },
     {
         "merged": "C:\\Users\\piyus\\.gradle\\daemon\\8.9\\com.example.audiodownloader.app-debug-4:\\drawable_bg_notif_button_play.xml.flat",
@@ -64,8 +68,16 @@
         "source": "C:\\Users\\piyus\\.gradle\\daemon\\8.9\\com.example.audiodownloader.app-main-6:\\drawable\\bg_notif_waveform.xml"
     },
     {
+        "merged": "C:\\Users\\piyus\\.gradle\\daemon\\8.9\\com.example.audiodownloader.app-debug-4:\\drawable_app_logo.png.flat",
+        "source": "C:\\Users\\piyus\\.gradle\\daemon\\8.9\\com.example.audiodownloader.app-main-6:\\drawable\\app_logo.png"
+    },
+    {
         "merged": "C:\\Users\\piyus\\.gradle\\daemon\\8.9\\com.example.audiodownloader.app-debug-4:\\drawable_bg_notif_art_curved.xml.flat",
         "source": "C:\\Users\\piyus\\.gradle\\daemon\\8.9\\com.example.audiodownloader.app-main-6:\\drawable\\bg_notif_art_curved.xml"
+    },
+    {
+        "merged": "C:\\Users\\piyus\\.gradle\\daemon\\8.9\\com.example.audiodownloader.app-debug-4:\\drawable_ic_waveform_frame1.xml.flat",
+        "source": "C:\\Users\\piyus\\.gradle\\daemon\\8.9\\com.example.audiodownloader.app-main-6:\\drawable\\ic_waveform_frame1.xml"
     },
     {
         "merged": "C:\\Users\\piyus\\.gradle\\daemon\\8.9\\com.example.audiodownloader.app-debug-4:\\drawable_ic_waveform.xml.flat",
@@ -80,12 +92,16 @@
         "source": "C:\\Users\\piyus\\.gradle\\daemon\\8.9\\com.example.audiodownloader.app-main-6:\\drawable\\ic_queue.xml"
     },
     {
-        "merged": "com.example.audiodownloader.app-debug-4:/drawable_anim_equalizer.xml.flat",
-        "source": "com.example.audiodownloader.app-main-6:/drawable/anim_equalizer.xml"
+        "merged": "C:\\Users\\piyus\\.gradle\\daemon\\8.9\\com.example.audiodownloader.app-debug-4:\\drawable_ic_launcher_round.png.flat",
+        "source": "C:\\Users\\piyus\\.gradle\\daemon\\8.9\\com.example.audiodownloader.app-main-6:\\drawable\\ic_launcher_round.png"
     },
     {
         "merged": "C:\\Users\\piyus\\.gradle\\daemon\\8.9\\com.example.audiodownloader.app-debug-4:\\layout_notification_expanded.xml.flat",
         "source": "C:\\Users\\piyus\\.gradle\\daemon\\8.9\\com.example.audiodownloader.app-main-6:\\layout\\notification_expanded.xml"
+    },
+    {
+        "merged": "C:\\Users\\piyus\\.gradle\\daemon\\8.9\\com.example.audiodownloader.app-debug-4:\\drawable_ic_waveform_frame4.xml.flat",
+        "source": "C:\\Users\\piyus\\.gradle\\daemon\\8.9\\com.example.audiodownloader.app-main-6:\\drawable\\ic_waveform_frame4.xml"
     },
     {
         "merged": "C:\\Users\\piyus\\.gradle\\daemon\\8.9\\com.example.audiodownloader.app-debug-4:\\drawable_ic_forward_10.xml.flat",

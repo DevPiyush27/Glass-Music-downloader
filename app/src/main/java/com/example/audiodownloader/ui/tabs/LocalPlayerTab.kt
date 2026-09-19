@@ -10,13 +10,16 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import android.provider.MediaStore
-import android.widget.Toast
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import android.widget.Toast
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
+import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Album
 import androidx.compose.material.icons.filled.Close
@@ -84,6 +87,7 @@ fun LocalPlayerTab(
     val playlists by viewModel.playlists.collectAsStateWithLifecycle()
     val selectedPlaylist by viewModel.selectedPlaylist.collectAsStateWithLifecycle()
     val activePlaybackTracks by viewModel.activePlaybackTracks.collectAsStateWithLifecycle()
+    val playingQueue by viewModel.playingQueue.collectAsStateWithLifecycle()
     val currentIndex by viewModel.currentTrackIndex.collectAsStateWithLifecycle()
     val isPlaying by viewModel.isPlaying.collectAsStateWithLifecycle()
     val positionMs by viewModel.positionMs.collectAsStateWithLifecycle()
@@ -103,7 +107,6 @@ fun LocalPlayerTab(
     var playlistToDelete by remember { mutableStateOf<FolderPlaylist?>(null) }
     var trackToDelete by remember { mutableStateOf<LocalTrack?>(null) }
     var playlistContextForDelete by remember { mutableStateOf<FolderPlaylist?>(null) }
-
     LaunchedEffect(hasPermission) {
         if (hasPermission) {
             viewModel.refreshTracks()
@@ -123,11 +126,15 @@ fun LocalPlayerTab(
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             NeomorphicSegmentedToggle(
-                options = listOf("Library (${tracks.size})", "Playlists (${playlists.size})"),
-                selectedIndex = currentTab,
+                options = listOf(
+                    "Library (${tracks.size})",
+                    "Playlists (${playlists.size})",
+                    "Queue (${playingQueue.size})"
+                ),
+                selectedIndex = currentTab.coerceIn(0, 2),
                 onOptionSelected = {
                     viewModel.setPlaylistTab(it)
-                    if (it == 0) viewModel.selectPlaylist(null)
+                    if (it != 1) viewModel.selectPlaylist(null)
                 },
                 modifier = Modifier.weight(1f)
             )
@@ -145,14 +152,14 @@ fun LocalPlayerTab(
                 if (isLoading) {
                     CircularProgressIndicator(
                         modifier = Modifier.size(18.dp),
-                        color = NeumorphColors.AccentCopper,
+                        color = LocalNeomorphicAccent.current,
                         strokeWidth = 2.dp
                     )
                 } else {
                     Icon(
                         imageVector = Icons.Default.Refresh,
                         contentDescription = "Refresh library",
-                        tint = NeumorphColors.AccentCopper,
+                        tint = LocalNeomorphicAccent.current,
                         modifier = Modifier.size(20.dp)
                     )
                 }
@@ -167,6 +174,8 @@ fun LocalPlayerTab(
                 onClearQuery = viewModel::clearSearchQuery,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
             )
+
+
         }
 
         // Center Content Area (Scrollable, weight 1f)
@@ -229,6 +238,10 @@ fun LocalPlayerTab(
                                     isCurrent = currentTrack?.id == track.id,
                                     isPlaying = isPlaying,
                                     onClick = { viewModel.playTrack(track) },
+                                    onPlayNext = {
+                                        viewModel.playTrackNext(track)
+                                        Toast.makeText(context, "Playing next: \"${track.title}\"", Toast.LENGTH_SHORT).show()
+                                    },
                                     onAddToPlaylist = { trackForPlaylistDialog = track },
                                     onDelete = {
                                         trackToDelete = track
@@ -239,7 +252,7 @@ fun LocalPlayerTab(
                         }
                     }
                 }
-                else -> {
+                currentTab == 1 -> {
                     // Playlists View
                     if (selectedPlaylist == null) {
                         // All Playlists list + Minimal Create Button
@@ -264,7 +277,7 @@ fun LocalPlayerTab(
                                         modifier = Modifier
                                             .size(26.dp)
                                             .clip(RoundedCornerShape(13.dp))
-                                            .background(NeumorphColors.AccentCopper),
+                                            .background(LocalNeomorphicAccent.current),
                                         contentAlignment = Alignment.Center
                                     ) {
                                         Icon(
@@ -302,6 +315,10 @@ fun LocalPlayerTab(
                                     FolderPlaylistRow(
                                         playlist = playlist,
                                         onClick = { viewModel.selectPlaylist(playlist) },
+                                        onPlayNext = {
+                                            viewModel.playPlaylistNext(playlist)
+                                            Toast.makeText(context, "Playing next: \"${playlist.name}\"", Toast.LENGTH_SHORT).show()
+                                        },
                                         onDelete = { playlistToDelete = playlist }
                                     )
                                 }
@@ -332,7 +349,7 @@ fun LocalPlayerTab(
                                     Icon(
                                         imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                                         contentDescription = "Back to playlists",
-                                        tint = NeumorphColors.AccentCopper,
+                                        tint = LocalNeomorphicAccent.current,
                                         modifier = Modifier.size(18.dp)
                                     )
                                 }
@@ -350,8 +367,23 @@ fun LocalPlayerTab(
                                     )
                                     Text(
                                         text = "${activePlaylist.trackCount} track(s) in folder",
-                                        color = NeumorphColors.AccentCopperLight,
+                                        color = NeumorphColors.TextMuted,
                                         fontSize = 12.sp
+                                    )
+                                }
+
+                                IconButton(
+                                    onClick = {
+                                        viewModel.playPlaylistNext(activePlaylist)
+                                        Toast.makeText(context, "Playing next: \"${activePlaylist.name}\"", Toast.LENGTH_SHORT).show()
+                                    },
+                                    modifier = Modifier.size(36.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Filled.QueueMusic,
+                                        contentDescription = "Play playlist next",
+                                        tint = LocalNeomorphicAccent.current,
+                                        modifier = Modifier.size(20.dp)
                                     )
                                 }
 
@@ -397,6 +429,10 @@ fun LocalPlayerTab(
                                             isCurrent = currentTrack?.id == track.id,
                                             isPlaying = isPlaying,
                                             onClick = { viewModel.playPlaylistTrack(activePlaylist, index) },
+                                            onPlayNext = {
+                                                viewModel.playTrackNext(track)
+                                                Toast.makeText(context, "Playing next: \"${track.title}\"", Toast.LENGTH_SHORT).show()
+                                            },
                                             onAddToPlaylist = { trackForPlaylistDialog = track },
                                             onDelete = {
                                                 trackToDelete = track
@@ -410,6 +446,18 @@ fun LocalPlayerTab(
                         }
                     }
                 }
+                else -> {
+                    // Queue View (Tab 2)
+                    NeomorphicQueueScreen(
+                        queue = playingQueue,
+                        currentIndex = currentIndex,
+                        isPlaying = isPlaying,
+                        onTrackClick = viewModel::playQueueTrack,
+                        onMoveItem = viewModel::moveQueueItem,
+                        onRemoveItem = viewModel::removeQueueItem,
+                        onClearQueue = viewModel::clearQueue
+                    )
+                }
             }
         }
 
@@ -422,7 +470,7 @@ fun LocalPlayerTab(
             hasSelection = currentTrack != null,
             onTogglePlayPause = viewModel::togglePlayPause,
             onSkipNext = viewModel::skipToNext,
-            onSkipPrevious = viewModel::skipToPrevious,
+            onSkipPrevious = viewModel::skipToPreviousTrack,
             onFastForward = viewModel::fastForward,
             onRewind = viewModel::rewind
         )
@@ -831,7 +879,7 @@ fun NeomorphicSearchBar(
         Icon(
             imageVector = Icons.Default.Search,
             contentDescription = "Search",
-            tint = NeumorphColors.AccentCopper,
+            tint = LocalNeomorphicAccent.current,
             modifier = Modifier.size(20.dp)
         )
 
@@ -854,7 +902,7 @@ fun NeomorphicSearchBar(
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Medium
                 ),
-                cursorBrush = SolidColor(NeumorphColors.AccentCopper),
+                cursorBrush = SolidColor(LocalNeomorphicAccent.current),
                 modifier = Modifier.fillMaxWidth()
             )
         }
@@ -889,13 +937,26 @@ private fun MiniPlayerCard(
     onSkipPrevious: () -> Unit,
     onFastForward: () -> Unit,
     onRewind: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    accentColor: Color = LocalNeomorphicAccent.current
 ) {
     Box(
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 6.dp)
             .neumorphicExtruded(cornerRadius = 18.dp, elevation = 6.dp)
+            .border(
+                width = 1.dp,
+                brush = Brush.linearGradient(
+                    listOf(
+                        accentColor.copy(alpha = 0.55f),
+                        accentColor.copy(alpha = 0.15f),
+                        Color.White.copy(alpha = 0.05f),
+                        Color.Transparent
+                    )
+                ),
+                shape = RoundedCornerShape(18.dp)
+            )
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
             // Sleek Recessed Neomorphic Progress Bar at the very top
@@ -916,7 +977,7 @@ private fun MiniPlayerCard(
                         .fillMaxWidth(fraction = progress)
                         .background(
                             Brush.horizontalGradient(
-                                listOf(NeumorphColors.AccentCopper, NeumorphColors.AccentCopperLight)
+                                listOf(accentColor, accentColor.copy(alpha = 0.65f))
                             )
                         )
                 )
@@ -939,7 +1000,7 @@ private fun MiniPlayerCard(
                     Icon(
                         imageVector = if (isPlaying) Icons.Default.GraphicEq else Icons.Default.Album,
                         contentDescription = null,
-                        tint = NeumorphColors.AccentCopper,
+                        tint = accentColor,
                         modifier = Modifier.size(20.dp)
                     )
                 }
@@ -963,7 +1024,7 @@ private fun MiniPlayerCard(
                     }
                     Text(
                         text = artistText,
-                        color = if (hasSelection) NeumorphColors.AccentCopperLight else NeumorphColors.TextMuted,
+                        color = if (hasSelection) accentColor.copy(alpha = 0.85f) else NeumorphColors.TextMuted,
                         fontSize = 12.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
@@ -977,7 +1038,8 @@ private fun MiniPlayerCard(
                     onClick = onRewind,
                     enabled = hasSelection,
                     size = 36.dp,
-                    cornerRadius = 10.dp
+                    cornerRadius = 10.dp,
+                    accentColor = accentColor
                 )
 
                 Spacer(modifier = Modifier.width(4.dp))
@@ -1001,7 +1063,7 @@ private fun MiniPlayerCard(
                     modifier = Modifier
                         .size(42.dp)
                         .clip(RoundedCornerShape(21.dp))
-                        .background(NeumorphColors.AccentCopper)
+                        .background(accentColor)
                         .border(
                             1.dp,
                             Brush.linearGradient(
@@ -1041,7 +1103,8 @@ private fun MiniPlayerCard(
                     onClick = onFastForward,
                     enabled = hasSelection,
                     size = 36.dp,
-                    cornerRadius = 10.dp
+                    cornerRadius = 10.dp,
+                    accentColor = accentColor
                 )
             }
         }
@@ -1066,7 +1129,7 @@ fun NeomorphicBackwardButton(
     size: Dp = 36.dp,
     cornerRadius: Dp = 10.dp,
     baseColor: Color = Color(0xFF222222),
-    accentColor: Color = Color(0xFFFFB6C1)
+    accentColor: Color = LocalNeomorphicAccent.current
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
@@ -1109,7 +1172,7 @@ fun NeomorphicBackwardButton(
  *
  * Characteristics:
  * - Base color: Dark charcoal (#222222)
- * - Accent color: Light Pink (#FFB6C1)
+ * - Accent color: Dynamic palette color (default Light Pink #FFB6C1 via LocalNeomorphicAccent)
  * - Extruded outer shadow modifier (.neumorphicExtruded) matching the player controls aesthetic
  * - Zero default Material 3 blue/violet ripple (custom tactile compression on press)
  * - Standard 10-second forward vector icon (Icons.Filled.Forward10)
@@ -1122,7 +1185,7 @@ fun NeomorphicForwardButton(
     size: Dp = 36.dp,
     cornerRadius: Dp = 10.dp,
     baseColor: Color = Color(0xFF222222),
-    accentColor: Color = Color(0xFFFFB6C1)
+    accentColor: Color = LocalNeomorphicAccent.current
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
@@ -1164,6 +1227,7 @@ fun NeomorphicForwardButton(
 private fun FolderPlaylistRow(
     playlist: FolderPlaylist,
     onClick: () -> Unit,
+    onPlayNext: (() -> Unit)? = null,
     onDelete: () -> Unit
 ) {
     val shape = RoundedCornerShape(16.dp)
@@ -1188,7 +1252,7 @@ private fun FolderPlaylistRow(
             Icon(
                 imageVector = Icons.Default.Folder,
                 contentDescription = "Folder",
-                tint = NeumorphColors.AccentCopper,
+                tint = LocalNeomorphicAccent.current,
                 modifier = Modifier.size(24.dp)
             )
         }
@@ -1213,6 +1277,20 @@ private fun FolderPlaylistRow(
             )
         }
 
+        if (onPlayNext != null) {
+            IconButton(
+                onClick = onPlayNext,
+                modifier = Modifier.size(36.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.QueueMusic,
+                    contentDescription = "Play playlist next",
+                    tint = LocalNeomorphicAccent.current,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+        }
+
         IconButton(
             onClick = onDelete,
             modifier = Modifier.size(36.dp)
@@ -1234,10 +1312,12 @@ private fun TrackRow(
     isCurrent: Boolean,
     isPlaying: Boolean,
     onClick: () -> Unit,
+    onPlayNext: (() -> Unit)? = null,
     onAddToPlaylist: (() -> Unit)? = null,
     onDelete: (() -> Unit)? = null,
     deleteLabel: String = "Delete Song"
 ) {
+    val activeAccent = LocalNeomorphicAccent.current
     val shape = RoundedCornerShape(14.dp)
     Row(
         modifier = Modifier
@@ -1250,7 +1330,7 @@ private fun TrackRow(
             .border(
                 width = 1.dp,
                 brush = if (isCurrent) {
-                    Brush.linearGradient(listOf(NeumorphColors.AccentCopper, NeumorphColors.AccentCopperDark))
+                    Brush.linearGradient(listOf(activeAccent, activeAccent.copy(alpha = 0.5f)))
                 } else {
                     Brush.linearGradient(listOf(Color.White.copy(alpha = 0.05f), Color.Black.copy(alpha = 0.4f)))
                 },
@@ -1270,13 +1350,13 @@ private fun TrackRow(
                 Icon(
                     imageVector = Icons.Default.GraphicEq,
                     contentDescription = "Now playing",
-                    tint = NeumorphColors.AccentCopper,
+                    tint = activeAccent,
                     modifier = Modifier.size(20.dp)
                 )
             } else {
                 Text(
                     text = "${index + 1}",
-                    color = if (isCurrent) NeumorphColors.AccentCopperLight else NeumorphColors.TextMuted,
+                    color = if (isCurrent) activeAccent else NeumorphColors.TextMuted,
                     fontSize = 13.sp,
                     fontWeight = FontWeight.SemiBold
                 )
@@ -1286,7 +1366,7 @@ private fun TrackRow(
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = track.title,
-                color = if (isCurrent) NeumorphColors.AccentCopperLight else NeumorphColors.TextCream,
+                color = if (isCurrent) activeAccent else NeumorphColors.TextCream,
                 fontSize = 14.sp,
                 fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Medium,
                 maxLines = 1,
@@ -1315,7 +1395,7 @@ private fun TrackRow(
             color = NeumorphColors.TextFaint,
             fontSize = 12.sp
         )
-        if (onAddToPlaylist != null || onDelete != null) {
+        if (onPlayNext != null || onAddToPlaylist != null || onDelete != null) {
             var showMenu by remember { mutableStateOf(false) }
 
             Box {
@@ -1326,7 +1406,7 @@ private fun TrackRow(
                     Icon(
                         imageVector = Icons.Default.MoreHoriz,
                         contentDescription = "Song options",
-                        tint = if (showMenu) NeumorphColors.AccentCopperLight else NeumorphColors.TextMuted,
+                        tint = if (showMenu) activeAccent else NeumorphColors.TextMuted,
                         modifier = Modifier.size(20.dp)
                     )
                 }
@@ -1341,13 +1421,37 @@ private fun TrackRow(
                             width = 1.dp,
                             brush = Brush.linearGradient(
                                 listOf(
-                                    NeumorphColors.AccentCopperLight.copy(alpha = 0.35f),
+                                    activeAccent.copy(alpha = 0.35f),
                                     Color.White.copy(alpha = 0.05f)
                                 )
                             ),
                             shape = RoundedCornerShape(14.dp)
                         )
                 ) {
+                    if (onPlayNext != null) {
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    text = "Play Next",
+                                    color = NeumorphColors.TextCream,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.QueueMusic,
+                                    contentDescription = null,
+                                    tint = activeAccent,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            },
+                            onClick = {
+                                showMenu = false
+                                onPlayNext()
+                            }
+                        )
+                    }
                     if (onAddToPlaylist != null) {
                         DropdownMenuItem(
                             text = {
@@ -1362,7 +1466,7 @@ private fun TrackRow(
                                 Icon(
                                     imageVector = Icons.AutoMirrored.Filled.PlaylistAdd,
                                     contentDescription = null,
-                                    tint = NeumorphColors.AccentCopperLight,
+                                    tint = activeAccent,
                                     modifier = Modifier.size(20.dp)
                                 )
                             },

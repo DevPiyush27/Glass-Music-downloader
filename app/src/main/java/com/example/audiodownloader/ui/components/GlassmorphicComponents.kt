@@ -66,6 +66,12 @@ object NeumorphColors {
 }
 
 /**
+ * Global CompositionLocal for the dynamic Palette accent color.
+ * Defaults to Light Pink (#FFB6C1) to guarantee contrast safety against the dark #222222 background.
+ */
+val LocalNeomorphicAccent = compositionLocalOf { Color(0xFFFFB6C1) }
+
+/**
  * Neomorphic Extruded Surface Modifier
  * Casts a soft dark ambient shadow at the bottom-right and renders a subtle top-left light highlight border.
  */
@@ -210,7 +216,7 @@ fun GlassTextField(
                 focusedIndicatorColor = Color.Transparent,
                 unfocusedIndicatorColor = Color.Transparent,
                 disabledIndicatorColor = Color.Transparent,
-                cursorColor = NeumorphColors.AccentCopper
+                cursorColor = LocalNeomorphicAccent.current
             )
         )
     }
@@ -226,6 +232,7 @@ fun GlassButton(
     shape: Shape = RoundedCornerShape(14.dp),
     content: (@Composable RowScope.() -> Unit)? = null
 ) {
+    val accentColor = LocalNeomorphicAccent.current
     Button(
         onClick = onClick,
         enabled = enabled,
@@ -237,9 +244,9 @@ fun GlassButton(
         ),
         shape = shape,
         colors = ButtonDefaults.buttonColors(
-            containerColor = NeumorphColors.AccentCopper,
+            containerColor = accentColor,
             contentColor = NeumorphColors.TextCream,
-            disabledContainerColor = NeumorphColors.AccentCopper.copy(alpha = 0.35f),
+            disabledContainerColor = accentColor.copy(alpha = 0.35f),
             disabledContentColor = NeumorphColors.TextMuted.copy(alpha = 0.4f)
         ),
         border = androidx.compose.foundation.BorderStroke(
@@ -280,19 +287,20 @@ fun GlassChip(
     onClick: () -> Unit = {},
     onRemove: (() -> Unit)? = null
 ) {
+    val accentColor = LocalNeomorphicAccent.current
     val displayLabel = if (title.isNotEmpty()) title else label
     val shape = RoundedCornerShape(20.dp)
     Box(
         modifier = modifier
             .clip(shape)
             .background(
-                if (selected) NeumorphColors.AccentCopper.copy(alpha = 0.25f)
+                if (selected) accentColor.copy(alpha = 0.25f)
                 else NeumorphColors.SurfacePressed
             )
             .border(
                 width = 1.dp,
                 brush = if (selected) {
-                    SolidColor(NeumorphColors.AccentCopper)
+                    SolidColor(accentColor)
                 } else {
                     Brush.linearGradient(
                         listOf(Color.White.copy(alpha = 0.08f), Color.Black.copy(alpha = 0.5f))
@@ -309,7 +317,7 @@ fun GlassChip(
         ) {
             Text(
                 text = displayLabel,
-                color = if (selected) NeumorphColors.AccentCopperLight else NeumorphColors.TextCream,
+                color = if (selected) accentColor else NeumorphColors.TextCream,
                 style = MaterialTheme.typography.labelMedium
             )
             if (onRemove != null) {
@@ -339,6 +347,7 @@ fun InlineQualitySelector(
     options: List<AudioQualityOption> = AudioQualityOption.values().toList()
 ) {
     var expanded by remember { mutableStateOf(false) }
+    val activeAccent = LocalNeomorphicAccent.current
 
     Column(
         modifier = modifier
@@ -365,7 +374,7 @@ fun InlineQualitySelector(
                 )
                 Text(
                     text = selectedOption.desc,
-                    color = NeumorphColors.AccentCopperLight,
+                    color = activeAccent.copy(alpha = 0.85f),
                     fontSize = 12.sp
                 )
             }
@@ -387,7 +396,7 @@ fun InlineQualitySelector(
                 Icon(
                     imageVector = if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
                     contentDescription = if (expanded) "Collapse options" else "Expand options",
-                    tint = NeumorphColors.AccentCopper,
+                    tint = activeAccent,
                     modifier = Modifier.size(20.dp)
                 )
             }
@@ -416,7 +425,7 @@ fun InlineQualitySelector(
                             )
                             .border(
                                 width = 1.dp,
-                                color = if (isSelected) NeumorphColors.AccentCopper else Color.White.copy(alpha = 0.05f),
+                                color = if (isSelected) activeAccent else Color.White.copy(alpha = 0.05f),
                                 shape = RoundedCornerShape(12.dp)
                             )
                             .clickable {
@@ -431,10 +440,10 @@ fun InlineQualitySelector(
                             modifier = Modifier
                                 .size(18.dp)
                                 .clip(RoundedCornerShape(9.dp))
-                                .background(if (isSelected) NeumorphColors.AccentCopper else Color(0xFF2A2A2A))
+                                .background(if (isSelected) activeAccent else Color(0xFF2A2A2A))
                                 .border(
                                     1.dp,
-                                    if (isSelected) NeumorphColors.AccentCopperLight else Color.White.copy(alpha = 0.1f),
+                                    if (isSelected) activeAccent else Color.White.copy(alpha = 0.1f),
                                     RoundedCornerShape(9.dp)
                                 ),
                             contentAlignment = Alignment.Center
@@ -460,7 +469,7 @@ fun InlineQualitySelector(
                             )
                             Text(
                                 text = option.desc,
-                                color = if (isSelected) NeumorphColors.AccentCopperLight else NeumorphColors.TextFaint,
+                                color = if (isSelected) activeAccent.copy(alpha = 0.85f) else NeumorphColors.TextFaint,
                                 fontSize = 11.sp
                             )
                         }
@@ -501,6 +510,7 @@ fun NeomorphicSegmentedToggle(
     onOptionSelected: (Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val activeAccent = LocalNeomorphicAccent.current
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -524,8 +534,8 @@ fun NeomorphicSegmentedToggle(
                                     1.dp,
                                     Brush.linearGradient(
                                         listOf(
-                                            NeumorphColors.AccentCopper,
-                                            NeumorphColors.AccentCopperDark
+                                            activeAccent,
+                                            activeAccent.copy(alpha = 0.6f)
                                         )
                                     ),
                                     shape
@@ -540,7 +550,7 @@ fun NeomorphicSegmentedToggle(
             ) {
                 Text(
                     text = title,
-                    color = if (isSelected) NeumorphColors.TextCream else NeumorphColors.TextMuted,
+                    color = if (isSelected) activeAccent else NeumorphColors.TextMuted,
                     fontSize = 14.sp,
                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
                 )

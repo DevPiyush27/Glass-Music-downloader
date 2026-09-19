@@ -71,7 +71,7 @@ fun DirectDownloadTab(
                         Icon(
                             imageVector = Icons.Default.MusicNote,
                             contentDescription = null,
-                            tint = NeumorphColors.AccentCopper
+                            tint = LocalNeomorphicAccent.current
                         )
                     }
                 )
@@ -258,7 +258,7 @@ fun DirectDownloadTab(
                                     )
                                     Text(
                                         text = "${state.progressPercent.toInt()}% (${state.speed})",
-                                        color = NeumorphColors.AccentCopperLight,
+                                        color = LocalNeomorphicAccent.current,
                                         fontSize = 13.sp,
                                         fontWeight = FontWeight.Bold
                                     )
@@ -269,7 +269,7 @@ fun DirectDownloadTab(
                                         .fillMaxWidth()
                                         .height(8.dp)
                                         .clip(RoundedCornerShape(4.dp)),
-                                    color = NeumorphColors.AccentCopper,
+                                    color = LocalNeomorphicAccent.current,
                                     trackColor = NeumorphColors.SurfacePressed
                                 )
                             }
@@ -294,7 +294,7 @@ fun DirectDownloadTab(
                         is DownloadState.Completed -> {
                             Text(
                                 text = "✅ Completed: ${state.songTitle}",
-                                color = NeumorphColors.AccentCopperLight,
+                                color = LocalNeomorphicAccent.current,
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.SemiBold
                             )
