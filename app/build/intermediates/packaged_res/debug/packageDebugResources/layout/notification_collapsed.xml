@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="56dp"
+    android:orientation="horizontal"
+    android:background="@drawable/bg_notif_container"
+    android:gravity="center_vertical"
+    android:paddingStart="8dp"
+    android:paddingEnd="8dp"
+    android:paddingTop="4dp"
+    android:paddingBottom="4dp">
+
+    <!-- Far Left: Song Display Album Art (Smooth Curves, Compact, No Border) -->
+    <ImageView
+        android:id="@+id/iv_collapsed_art"
+        android:layout_width="44dp"
+        android:layout_height="44dp"
+        android:scaleType="centerCrop"
+        android:src="@drawable/ic_launcher"
+        android:background="@drawable/bg_notif_art_curved"
+        android:clipToOutline="true" />
+
+    <!-- Center: Track Title & Artist -->
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:paddingStart="12dp"
+        android:paddingEnd="10dp">
+
+        <TextView
+            android:id="@+id/tv_collapsed_title"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="#1C1B1F"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:text="Audio Aurora" />
+
+        <TextView
+            android:id="@+id/tv_collapsed_artist"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="#5E172D"
+            android:textSize="12sp"
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:text="Select a track to play" />
+    </LinearLayout>
+
+    <!-- Far Right: Equalizer Waveform Container (No Border) -->
+    <FrameLayout
+        android:layout_width="34dp"
+        android:layout_height="34dp"
+        android:background="@drawable/bg_notif_waveform"
+        android:layout_gravity="center_vertical"
+        android:padding="6dp">
+
+        <ImageView
+            android:id="@+id/iv_collapsed_waveform"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:scaleType="fitCenter"
+            android:src="@drawable/ic_waveform" />
+    </FrameLayout>
+</LinearLayout>

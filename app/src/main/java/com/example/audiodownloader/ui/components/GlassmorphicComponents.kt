@@ -34,7 +34,7 @@ import androidx.compose.ui.unit.sp
 /**
  * Strictly Neomorphic Dark Palette
  * Background: Solid dark charcoal (#222222) with absolutely NO blue/violet tint.
- * Accent: Warm copper & gold (#B07C54, #C89268).
+ * Accent: Light pink & soft rose (#F4A6B8, #FBC4CE, #B86477).
  * Text: Warm cream and soft neutral gray.
  */
 object NeumorphColors {
@@ -43,11 +43,16 @@ object NeumorphColors {
     val SurfacePressed = Color(0xFF1B1B1B)
     val SurfaceLight = Color(0xFF282828)
 
-    // Warm Accents (Copper & Gold) - Zero Blue/Purple
-    val AccentCopper = Color(0xFFB07C54)
-    val AccentCopperLight = Color(0xFFC89268)
-    val AccentCopperDark = Color(0xFF8C5E3C)
-    val AccentWarmGold = Color(0xFFD4A373)
+    // Light Pink Accents (Soft Sakura & Pastel Rose)
+    val AccentCopper = Color(0xFFF4A6B8) // Light Pink primary
+    val AccentCopperLight = Color(0xFFFBC4CE) // Soft Light Pink
+    val AccentCopperDark = Color(0xFFB86477) // Muted Rose Pink for gradients
+    val AccentWarmGold = Color(0xFFF2A7B5)
+
+    // Aliases for explicit Pink naming
+    val AccentPink = AccentCopper
+    val AccentPinkLight = AccentCopperLight
+    val AccentPinkDark = AccentCopperDark
 
     // Text Hierarchy
     val TextCream = Color(0xFFF5F0EB)
@@ -57,7 +62,7 @@ object NeumorphColors {
     // Status Colors (Warm & Neutral)
     val StatusWarning = Color(0xFFD99B26)
     val StatusError = Color(0xFFD9534F)
-    val StatusSuccess = Color(0xFFB07C54)
+    val StatusSuccess = Color(0xFFF4A6B8)
 }
 
 /**

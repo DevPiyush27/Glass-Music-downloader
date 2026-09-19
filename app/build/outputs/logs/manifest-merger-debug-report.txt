@@ -1,9 +1,9 @@
 -- Merging decision tree log ---
 manifest
-ADDED from C:\Glass-Music-downloader-main\app\src\main\AndroidManifest.xml:2:1-32:12
-INJECTED from C:\Glass-Music-downloader-main\app\src\main\AndroidManifest.xml:2:1-32:12
-INJECTED from C:\Glass-Music-downloader-main\app\src\main\AndroidManifest.xml:2:1-32:12
-INJECTED from C:\Glass-Music-downloader-main\app\src\main\AndroidManifest.xml:2:1-32:12
+ADDED from C:\Glass-Music-downloader-main\app\src\main\AndroidManifest.xml:2:1-48:12
+INJECTED from C:\Glass-Music-downloader-main\app\src\main\AndroidManifest.xml:2:1-48:12
+INJECTED from C:\Glass-Music-downloader-main\app\src\main\AndroidManifest.xml:2:1-48:12
+INJECTED from C:\Glass-Music-downloader-main\app\src\main\AndroidManifest.xml:2:1-48:12
 MERGED from [com.github.yausername.youtubedl-android:ffmpeg:0.14.0] C:\Users\piyus\.gradle\caches\8.9\transforms\3447ab4e8fe8d67e9a39f4b13e250d64\transformed\ffmpeg-0.14.0\AndroidManifest.xml:2:1-11:12
 MERGED from [com.github.yausername.youtubedl-android:common:0.14.0] C:\Users\piyus\.gradle\caches\8.9\transforms\e8df6c45a3d76539db71578546830a96\transformed\common-0.14.0\AndroidManifest.xml:2:1-12:12
 MERGED from [androidx.appcompat:appcompat:1.1.0] C:\Users\piyus\.gradle\caches\8.9\transforms\503e93960e4964d2d6995fe309c65772\transformed\appcompat-1.1.0\AndroidManifest.xml:17:1-24:12
@@ -36,6 +36,7 @@ MERGED from [androidx.media3:media3-decoder:1.4.1] C:\Users\piyus\.gradle\caches
 MERGED from [androidx.media3:media3-database:1.4.1] C:\Users\piyus\.gradle\caches\8.9\transforms\7e21f923085bd12e2ee8df7937b3cecd\transformed\media3-database-1.4.1\AndroidManifest.xml:17:1-22:12
 MERGED from [androidx.media3:media3-common:1.4.1] C:\Users\piyus\.gradle\caches\8.9\transforms\89044b8980a0c88cbcf80a3adc7e38d5\transformed\media3-common-1.4.1\AndroidManifest.xml:17:1-24:12
 MERGED from [androidx.media3:media3-exoplayer:1.4.1] C:\Users\piyus\.gradle\caches\8.9\transforms\f2b65d7b6a4ddfba4b70c7dc711bfb61\transformed\media3-exoplayer-1.4.1\AndroidManifest.xml:17:1-24:12
+MERGED from [androidx.media:media:1.7.0] C:\Users\piyus\.gradle\caches\8.9\transforms\2608bec1a56e5bff7bbeabd32f28cd10\transformed\media-1.7.0\AndroidManifest.xml:2:1-7:12
 MERGED from [androidx.appcompat:appcompat-resources:1.1.0] C:\Users\piyus\.gradle\caches\8.9\transforms\69a1b5c526ff474cd48b4f54b665a558\transformed\appcompat-resources-1.1.0\AndroidManifest.xml:17:1-24:12
 MERGED from [androidx.drawerlayout:drawerlayout:1.0.0] C:\Users\piyus\.gradle\caches\8.9\transforms\dcdc78c6e0c4fd7be5c6bcf8a7fcfd3f\transformed\drawerlayout-1.0.0\AndroidManifest.xml:17:1-22:12
 MERGED from [androidx.autofill:autofill:1.0.0] C:\Users\piyus\.gradle\caches\8.9\transforms\b6cf9ee7d3ca9a8d87bfa213257a4ee8\transformed\autofill-1.0.0\AndroidManifest.xml:17:1-24:12
@@ -119,9 +120,13 @@ uses-permission#android.permission.FOREGROUND_SERVICE_DATA_SYNC
 ADDED from C:\Glass-Music-downloader-main\app\src\main\AndroidManifest.xml:11:5-87
 	android:name
 		ADDED from C:\Glass-Music-downloader-main\app\src\main\AndroidManifest.xml:11:22-84
+uses-permission#android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK
+ADDED from C:\Glass-Music-downloader-main\app\src\main\AndroidManifest.xml:12:5-92
+	android:name
+		ADDED from C:\Glass-Music-downloader-main\app\src\main\AndroidManifest.xml:12:22-89
 application
-ADDED from C:\Glass-Music-downloader-main\app\src\main\AndroidManifest.xml:13:5-30:19
-INJECTED from C:\Glass-Music-downloader-main\app\src\main\AndroidManifest.xml:13:5-30:19
+ADDED from C:\Glass-Music-downloader-main\app\src\main\AndroidManifest.xml:14:5-46:19
+INJECTED from C:\Glass-Music-downloader-main\app\src\main\AndroidManifest.xml:14:5-46:19
 MERGED from [androidx.emoji2:emoji2:1.3.0] C:\Users\piyus\.gradle\caches\8.9\transforms\4fbb7eb8d8e16fe36294c56b6c7255a9\transformed\emoji2-1.3.0\AndroidManifest.xml:23:5-33:19
 MERGED from [androidx.emoji2:emoji2:1.3.0] C:\Users\piyus\.gradle\caches\8.9\transforms\4fbb7eb8d8e16fe36294c56b6c7255a9\transformed\emoji2-1.3.0\AndroidManifest.xml:23:5-33:19
 MERGED from [androidx.lifecycle:lifecycle-process:2.8.5] C:\Users\piyus\.gradle\caches\8.9\transforms\dd0c02bb192c9da2a0331719e359f64b\transformed\lifecycle-process-2.8.5\AndroidManifest.xml:23:5-33:19
@@ -139,37 +144,75 @@ MERGED from [androidx.versionedparcelable:versionedparcelable:1.1.1] C:\Users\pi
 	android:appComponentFactory
 		ADDED from [androidx.core:core:1.13.1] C:\Users\piyus\.gradle\caches\8.9\transforms\36aa04ec9ea0a9d11b2816dae9628982\transformed\core-1.13.1\AndroidManifest.xml:28:18-86
 	android:supportsRtl
-		ADDED from C:\Glass-Music-downloader-main\app\src\main\AndroidManifest.xml:19:9-35
+		ADDED from C:\Glass-Music-downloader-main\app\src\main\AndroidManifest.xml:20:9-35
 	android:label
-		ADDED from C:\Glass-Music-downloader-main\app\src\main\AndroidManifest.xml:16:9-47
+		ADDED from C:\Glass-Music-downloader-main\app\src\main\AndroidManifest.xml:17:9-47
 	android:roundIcon
-		ADDED from C:\Glass-Music-downloader-main\app\src\main\AndroidManifest.xml:18:9-56
+		ADDED from C:\Glass-Music-downloader-main\app\src\main\AndroidManifest.xml:19:9-56
 	android:icon
-		ADDED from C:\Glass-Music-downloader-main\app\src\main\AndroidManifest.xml:17:9-45
+		ADDED from C:\Glass-Music-downloader-main\app\src\main\AndroidManifest.xml:18:9-45
 	android:allowBackup
-		ADDED from C:\Glass-Music-downloader-main\app\src\main\AndroidManifest.xml:15:9-35
+		ADDED from C:\Glass-Music-downloader-main\app\src\main\AndroidManifest.xml:16:9-35
 	android:theme
-		ADDED from C:\Glass-Music-downloader-main\app\src\main\AndroidManifest.xml:20:9-72
+		ADDED from C:\Glass-Music-downloader-main\app\src\main\AndroidManifest.xml:21:9-72
 	android:name
-		ADDED from C:\Glass-Music-downloader-main\app\src\main\AndroidManifest.xml:14:9-43
+		ADDED from C:\Glass-Music-downloader-main\app\src\main\AndroidManifest.xml:15:9-43
 activity#com.example.audiodownloader.MainActivity
-ADDED from C:\Glass-Music-downloader-main\app\src\main\AndroidManifest.xml:21:9-29:20
+ADDED from C:\Glass-Music-downloader-main\app\src\main\AndroidManifest.xml:22:9-30:20
 	android:exported
-		ADDED from C:\Glass-Music-downloader-main\app\src\main\AndroidManifest.xml:23:13-36
+		ADDED from C:\Glass-Music-downloader-main\app\src\main\AndroidManifest.xml:24:13-36
 	android:theme
-		ADDED from C:\Glass-Music-downloader-main\app\src\main\AndroidManifest.xml:24:13-76
+		ADDED from C:\Glass-Music-downloader-main\app\src\main\AndroidManifest.xml:25:13-76
 	android:name
-		ADDED from C:\Glass-Music-downloader-main\app\src\main\AndroidManifest.xml:22:13-41
+		ADDED from C:\Glass-Music-downloader-main\app\src\main\AndroidManifest.xml:23:13-41
 intent-filter#action:name:android.intent.action.MAIN+category:name:android.intent.category.LAUNCHER
-ADDED from C:\Glass-Music-downloader-main\app\src\main\AndroidManifest.xml:25:13-28:29
+ADDED from C:\Glass-Music-downloader-main\app\src\main\AndroidManifest.xml:26:13-29:29
 action#android.intent.action.MAIN
-ADDED from C:\Glass-Music-downloader-main\app\src\main\AndroidManifest.xml:26:17-69
+ADDED from C:\Glass-Music-downloader-main\app\src\main\AndroidManifest.xml:27:17-69
 	android:name
-		ADDED from C:\Glass-Music-downloader-main\app\src\main\AndroidManifest.xml:26:25-66
+		ADDED from C:\Glass-Music-downloader-main\app\src\main\AndroidManifest.xml:27:25-66
 category#android.intent.category.LAUNCHER
-ADDED from C:\Glass-Music-downloader-main\app\src\main\AndroidManifest.xml:27:17-77
+ADDED from C:\Glass-Music-downloader-main\app\src\main\AndroidManifest.xml:28:17-77
 	android:name
-		ADDED from C:\Glass-Music-downloader-main\app\src\main\AndroidManifest.xml:27:27-74
+		ADDED from C:\Glass-Music-downloader-main\app\src\main\AndroidManifest.xml:28:27-74
+service#com.example.audiodownloader.service.MusicService
+ADDED from C:\Glass-Music-downloader-main\app\src\main\AndroidManifest.xml:32:9-45:19
+	android:exported
+		ADDED from C:\Glass-Music-downloader-main\app\src\main\AndroidManifest.xml:34:13-36
+	android:foregroundServiceType
+		ADDED from C:\Glass-Music-downloader-main\app\src\main\AndroidManifest.xml:35:13-58
+	android:name
+		ADDED from C:\Glass-Music-downloader-main\app\src\main\AndroidManifest.xml:33:13-49
+intent-filter#action:name:FAST_FORWARD+action:name:NEXT+action:name:PLAY_PAUSE+action:name:PREVIOUS+action:name:QUEUE+action:name:REWIND+action:name:android.media.browse.MediaBrowserService
+ADDED from C:\Glass-Music-downloader-main\app\src\main\AndroidManifest.xml:36:13-44:29
+action#android.media.browse.MediaBrowserService
+ADDED from C:\Glass-Music-downloader-main\app\src\main\AndroidManifest.xml:37:17-83
+	android:name
+		ADDED from C:\Glass-Music-downloader-main\app\src\main\AndroidManifest.xml:37:25-80
+action#PLAY_PAUSE
+ADDED from C:\Glass-Music-downloader-main\app\src\main\AndroidManifest.xml:38:17-53
+	android:name
+		ADDED from C:\Glass-Music-downloader-main\app\src\main\AndroidManifest.xml:38:25-50
+action#PREVIOUS
+ADDED from C:\Glass-Music-downloader-main\app\src\main\AndroidManifest.xml:39:17-51
+	android:name
+		ADDED from C:\Glass-Music-downloader-main\app\src\main\AndroidManifest.xml:39:25-48
+action#REWIND
+ADDED from C:\Glass-Music-downloader-main\app\src\main\AndroidManifest.xml:40:17-49
+	android:name
+		ADDED from C:\Glass-Music-downloader-main\app\src\main\AndroidManifest.xml:40:25-46
+action#FAST_FORWARD
+ADDED from C:\Glass-Music-downloader-main\app\src\main\AndroidManifest.xml:41:17-55
+	android:name
+		ADDED from C:\Glass-Music-downloader-main\app\src\main\AndroidManifest.xml:41:25-52
+action#NEXT
+ADDED from C:\Glass-Music-downloader-main\app\src\main\AndroidManifest.xml:42:17-47
+	android:name
+		ADDED from C:\Glass-Music-downloader-main\app\src\main\AndroidManifest.xml:42:25-44
+action#QUEUE
+ADDED from C:\Glass-Music-downloader-main\app\src\main\AndroidManifest.xml:43:17-48
+	android:name
+		ADDED from C:\Glass-Music-downloader-main\app\src\main\AndroidManifest.xml:43:25-45
 uses-sdk
 INJECTED from C:\Glass-Music-downloader-main\app\src\main\AndroidManifest.xml reason: use-sdk injection requested
 INJECTED from C:\Glass-Music-downloader-main\app\src\main\AndroidManifest.xml
@@ -238,6 +281,8 @@ MERGED from [androidx.media3:media3-common:1.4.1] C:\Users\piyus\.gradle\caches\
 MERGED from [androidx.media3:media3-common:1.4.1] C:\Users\piyus\.gradle\caches\8.9\transforms\89044b8980a0c88cbcf80a3adc7e38d5\transformed\media3-common-1.4.1\AndroidManifest.xml:20:5-44
 MERGED from [androidx.media3:media3-exoplayer:1.4.1] C:\Users\piyus\.gradle\caches\8.9\transforms\f2b65d7b6a4ddfba4b70c7dc711bfb61\transformed\media3-exoplayer-1.4.1\AndroidManifest.xml:20:5-44
 MERGED from [androidx.media3:media3-exoplayer:1.4.1] C:\Users\piyus\.gradle\caches\8.9\transforms\f2b65d7b6a4ddfba4b70c7dc711bfb61\transformed\media3-exoplayer-1.4.1\AndroidManifest.xml:20:5-44
+MERGED from [androidx.media:media:1.7.0] C:\Users\piyus\.gradle\caches\8.9\transforms\2608bec1a56e5bff7bbeabd32f28cd10\transformed\media-1.7.0\AndroidManifest.xml:5:5-44
+MERGED from [androidx.media:media:1.7.0] C:\Users\piyus\.gradle\caches\8.9\transforms\2608bec1a56e5bff7bbeabd32f28cd10\transformed\media-1.7.0\AndroidManifest.xml:5:5-44
 MERGED from [androidx.appcompat:appcompat-resources:1.1.0] C:\Users\piyus\.gradle\caches\8.9\transforms\69a1b5c526ff474cd48b4f54b665a558\transformed\appcompat-resources-1.1.0\AndroidManifest.xml:20:5-22:41
 MERGED from [androidx.appcompat:appcompat-resources:1.1.0] C:\Users\piyus\.gradle\caches\8.9\transforms\69a1b5c526ff474cd48b4f54b665a558\transformed\appcompat-resources-1.1.0\AndroidManifest.xml:20:5-22:41
 MERGED from [androidx.drawerlayout:drawerlayout:1.0.0] C:\Users\piyus\.gradle\caches\8.9\transforms\dcdc78c6e0c4fd7be5c6bcf8a7fcfd3f\transformed\drawerlayout-1.0.0\AndroidManifest.xml:20:5-44

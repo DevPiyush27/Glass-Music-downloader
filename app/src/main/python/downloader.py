@@ -2,6 +2,7 @@ import os
 import shutil
 import subprocess
 import yt_dlp
+from yt_dlp.postprocessor.metadataparser import MetadataParserPP
 
 
 def get_ffmpeg_paths(custom_binary=None, custom_lib_dir=None):
@@ -86,10 +87,10 @@ def is_webm_file(filepath):
     return False
 
 
-def convert_webm_to_flac(ydl, webm_path, ffmpeg_path=None):
+def convert_webm_to_flac(ydl, webm_path, ffmpeg_path=None, info=None):
     """
     Converts a .webm container audio file to .flac locally using yt-dlp FFmpeg post-processing
-    with a direct ffmpeg execution fallback.
+    with a direct ffmpeg execution fallback, preserving and embedding all metadata tags.
     """
     base, _ = os.path.splitext(webm_path)
     target_flac = base + ".flac"
@@ -104,6 +105,10 @@ def convert_webm_to_flac(ydl, webm_path, ffmpeg_path=None):
             'filepath': webm_path,
             'ext': 'webm',
         }
+        if info:
+            info_dict.update(info)
+            info_dict['filepath'] = webm_path
+            info_dict['ext'] = 'webm'
         _, new_info = pp.run(info_dict)
         out_file = new_info.get('filepath') or target_flac
         if os.path.exists(out_file) and os.path.getsize(out_file) > 0:
@@ -121,11 +126,24 @@ def convert_webm_to_flac(ydl, webm_path, ffmpeg_path=None):
                 "-i", webm_path,
                 "-vn",
                 "-c:a", "flac",
+                "-map_metadata", "0",
                 target_flac
             ]
             res = subprocess.run(cmd, capture_output=True, text=True)
             if res.returncode == 0 and os.path.exists(target_flac) and os.path.getsize(target_flac) > 0:
                 converted = True
+
+    # 3. Ensure metadata tags are embedded into the converted FLAC file
+    if converted and os.path.exists(target_flac) and info:
+        try:
+            from yt_dlp.postprocessor import FFmpegMetadataPP
+            meta_pp = FFmpegMetadataPP(downloader=ydl, add_metadata=True, add_chapters=True)
+            flac_info = dict(info)
+            flac_info['filepath'] = target_flac
+            flac_info['ext'] = 'flac'
+            meta_pp.run(flac_info)
+        except Exception as meta_err:
+            print(f"Warning embedding metadata to FLAC: {meta_err}")
 
     if converted and os.path.exists(target_flac):
         # Clean up the original .webm file if it still exists
@@ -189,14 +207,39 @@ def download_audio(query, output_dir=None, bitrate="normal", callback=None, ffmp
 
     quality_str = str(bitrate).lower().strip() if bitrate else "normal"
 
-    postprocessors = []
+    postprocessors = [
+        {
+            'key': 'MetadataParser',
+            'when': 'pre_process',
+            'actions': [
+                (MetadataParserPP.Actions.INTERPRET, 'title', '%(artist)s - %(title)s'),
+                (MetadataParserPP.Actions.REPLACE, 'artist', r' - Topic$', ''),
+            ]
+        },
+        {
+            'key': 'FFmpegExtractAudio',
+            'preferredcodec': 'flac',
+        },
+        {
+            'key': 'FFmpegThumbnailsConvertor',
+            'format': 'jpg'
+        },
+        {
+            'key': 'FFmpegMetadata',
+            'add_metadata': True,
+            'add_chapters': True
+        },
+        {
+            'key': 'EmbedThumbnail',
+            'already_have_thumbnail': False
+        }
+    ]
 
-    if quality_str in ["high", "320", "251", "best", "opus"]:
-        format_spec = "251/bestaudio[acodec=opus]/bestaudio/ba"
-    elif quality_str in ["low", "64", "50", "249", "250", "worst", "lowest", "datasaver"]:
+    if quality_str in ["low", "64", "50", "249", "250", "worst", "lowest", "datasaver"]:
         format_spec = "249/250/139/worstaudio/ba[abr<=70]/worst"
-    else:  # Normal quality: itag 140 (128kbps AAC M4A)
-        format_spec = "140/ba[ext=m4a]/bestaudio[ext=m4a]/ba[abr<=160]/ba"
+    else:
+        # Best audio stream source for lossless FLAC extraction
+        format_spec = "bestaudio/best"
 
     ydl_opts = {
         'format': format_spec,
@@ -204,16 +247,15 @@ def download_audio(query, output_dir=None, bitrate="normal", callback=None, ffmp
         'quiet': True,
         'no_warnings': True,
         'nocheckcertificate': True,
-        'writethumbnail': False,
+        'writethumbnail': True,
         'noplaylist': True,
-        'progress_hooks': [progress_hook]
+        'parse_metadata': ['title:%(artist)s - %(title)s'],
+        'progress_hooks': [progress_hook],
+        'postprocessors': postprocessors
     }
 
     if ffmpeg_bin:
         ydl_opts['ffmpeg_location'] = ffmpeg_bin
-
-    if postprocessors:
-        ydl_opts['postprocessors'] = postprocessors
 
     try:
         if callback:
@@ -245,12 +287,12 @@ def download_audio(query, output_dir=None, bitrate="normal", callback=None, ffmp
                     if not final_file or not os.path.exists(final_file):
                         final_file = prep if os.path.exists(prep) else prep
             else:
-                final_file = f"{title}.m4a"
+                final_file = f"{title}.flac"
 
             # Check if file container is .webm; if found, convert to .flac locally using yt-dlp
             if final_file and is_webm_file(final_file):
                 try:
-                    converted_file = convert_webm_to_flac(ydl, final_file, ffmpeg_path=ffmpeg_bin)
+                    converted_file = convert_webm_to_flac(ydl, final_file, ffmpeg_path=ffmpeg_bin, info=info)
                     if converted_file and os.path.exists(converted_file):
                         final_file = converted_file
                 except Exception as conv_err:
