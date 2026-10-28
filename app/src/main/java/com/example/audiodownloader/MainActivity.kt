@@ -40,6 +40,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
@@ -191,7 +192,7 @@ class MainActivity : ComponentActivity() {
 
             // Display native emergency fallback text screen
             val scrollView = ScrollView(this).apply {
-                setBackgroundColor(0xFF222222.toInt())
+                setBackgroundColor(0xFF000000.toInt())
                 setPadding(32, 64, 32, 32)
             }
             val textView = TextView(this).apply {
@@ -319,17 +320,21 @@ fun GlassTopAppBar() {
 
             Spacer(modifier = Modifier.width(14.dp))
 
-            Column {
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = "Audio Aurora",
                     color = NeumorphColors.TextCream,
-                    fontSize = 22.sp,
-                    fontWeight = FontWeight.Bold
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
                 Text(
                     text = "Neomorphic yt-dlp & Spotify Engine",
                     color = NeumorphColors.TextMuted,
-                    fontSize = 12.sp
+                    fontSize = 12.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
         }
@@ -341,21 +346,25 @@ fun GlassBottomNavigationBar(
     selectedTab: Int,
     onTabSelected: (Int) -> Unit
 ) {
-    Box(
+    BoxWithConstraints(
         modifier = Modifier
             .fillMaxWidth()
             .navigationBarsPadding()
-            .padding(horizontal = 16.dp, vertical = 12.dp)
     ) {
+        val isVeryCompact = maxWidth < 330.dp
+        val isCompact = maxWidth < 370.dp
+        val horizontalNavPadding = if (isVeryCompact) 8.dp else if (isCompact) 12.dp else 16.dp
+
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .padding(horizontal = horizontalNavPadding, vertical = 8.dp)
                 .neumorphicExtruded(
                     cornerRadius = 24.dp,
                     backgroundColor = NeumorphColors.Surface,
                     elevation = 6.dp
                 )
-                .padding(6.dp),
+                .padding(if (isVeryCompact) 3.dp else if (isCompact) 4.dp else 6.dp),
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -364,6 +373,8 @@ fun GlassBottomNavigationBar(
                 icon = Icons.Default.Download,
                 isSelected = selectedTab == 0,
                 onClick = { onTabSelected(0) },
+                isCompact = isCompact,
+                isVeryCompact = isVeryCompact,
                 modifier = Modifier.weight(1f)
             )
             GlassNavigationItem(
@@ -371,6 +382,8 @@ fun GlassBottomNavigationBar(
                 icon = Icons.Default.LibraryMusic,
                 isSelected = selectedTab == 1,
                 onClick = { onTabSelected(1) },
+                isCompact = isCompact,
+                isVeryCompact = isVeryCompact,
                 modifier = Modifier.weight(1f)
             )
             GlassNavigationItem(
@@ -378,6 +391,8 @@ fun GlassBottomNavigationBar(
                 icon = Icons.Default.GraphicEq,
                 isSelected = selectedTab == 2,
                 onClick = { onTabSelected(2) },
+                isCompact = isCompact,
+                isVeryCompact = isVeryCompact,
                 modifier = Modifier.weight(1f)
             )
         }
@@ -390,7 +405,9 @@ fun GlassNavigationItem(
     icon: ImageVector,
     isSelected: Boolean,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    isCompact: Boolean = false,
+    isVeryCompact: Boolean = false
 ) {
     val interactionSource = remember { MutableInteractionSource() }
 
@@ -411,25 +428,31 @@ fun GlassNavigationItem(
                 indication = null,
                 onClick = onClick
             )
-            .padding(vertical = 10.dp, horizontal = 4.dp),
+            .padding(
+                vertical = if (isVeryCompact) 7.dp else if (isCompact) 8.dp else 10.dp,
+                horizontal = if (isVeryCompact) 1.dp else 2.dp
+            ),
         contentAlignment = Alignment.Center
     ) {
         val activeColor = LocalNeomorphicAccent.current
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
+            horizontalArrangement = Arrangement.spacedBy(if (isVeryCompact) 3.dp else if (isCompact) 4.dp else 6.dp)
         ) {
             Icon(
                 imageVector = icon,
                 contentDescription = label,
                 tint = if (isSelected) activeColor else NeumorphColors.TextMuted,
-                modifier = Modifier.size(18.dp)
+                modifier = Modifier.size(if (isVeryCompact) 15.dp else if (isCompact) 16.dp else 18.dp)
             )
             Text(
                 text = label,
                 color = if (isSelected) activeColor else NeumorphColors.TextMuted,
-                fontSize = 13.sp,
-                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                fontSize = if (isVeryCompact) 10.5.sp else if (isCompact) 11.5.sp else 13.sp,
+                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                maxLines = 1,
+                softWrap = false,
+                overflow = TextOverflow.Ellipsis
             )
         }
     }

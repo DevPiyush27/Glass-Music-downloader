@@ -4,6 +4,7 @@ import android.content.Context
 import android.media.MediaScannerConnection
 import android.net.Uri
 import android.os.Environment
+import android.util.Log
 import androidx.documentfile.provider.DocumentFile
 import com.chaquo.python.PyObject
 import com.chaquo.python.Python
@@ -96,6 +97,8 @@ class AudioDownloadManager(
             val ffmpegLibDir = File(context.noBackupFilesDir, "youtubedl-android/packages/ffmpeg/usr/lib")
                 .takeIf { it.exists() }?.absolutePath
 
+            Log.d("AudioDownloadManager", "Starting download: '$query' with requested quality: ${quality.name} (${quality.bitrate} kbps)")
+
             // Execute Python download & transcoding inside cacheDir
             val result: PyObject = downloaderModule.callAttr(
                 "download_audio",
@@ -113,6 +116,8 @@ class AudioDownloadManager(
             if (isSuccess) {
                 val title = resultMap[py.getBuiltins().callAttr("str", "title")]?.toString() ?: query
                 val finalFile = resultMap[py.getBuiltins().callAttr("str", "filename")]?.toString() ?: ""
+                val verifiedBitrate = resultMap[py.getBuiltins().callAttr("str", "bitrate")]?.toString() ?: quality.bitrate
+                Log.d("AudioDownloadManager", "Download verified for '$title' at quality: $verifiedBitrate kbps (selected: ${quality.bitrate} kbps)")
 
                 val cachedFile = if (File(finalFile).isAbsolute) {
                     File(finalFile)
@@ -130,10 +135,11 @@ class AudioDownloadManager(
                     if (!savedSafUriString.isNullOrBlank()) {
                         val treeUri = Uri.parse(savedSafUriString)
                         val pickedDir = DocumentFile.fromTreeUri(context, treeUri)
-                        val mimeType = if (cachedFile.name.endsWith(".flac", ignoreCase = true)) {
-                            "audio/flac"
-                        } else {
-                            "audio/mpeg"
+                        val mimeType = when {
+                            cachedFile.name.endsWith(".m4a", ignoreCase = true) -> "audio/mp4"
+                            cachedFile.name.endsWith(".flac", ignoreCase = true) -> "audio/flac"
+                            cachedFile.name.endsWith(".mp3", ignoreCase = true) -> "audio/mpeg"
+                            else -> "audio/mp4"
                         }
 
                         val targetFile = pickedDir?.createFile(mimeType, cachedFile.name)

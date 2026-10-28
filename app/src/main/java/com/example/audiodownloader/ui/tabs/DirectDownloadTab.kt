@@ -167,13 +167,13 @@ fun DirectDownloadTab(
 
                 InlineQualitySelector(
                     selectedOption = when (selectedQuality) {
-                        AudioQuality.LOW -> AudioQualityOption.LOW
+                        AudioQuality.STANDARD -> AudioQualityOption.STANDARD
                         AudioQuality.NORMAL -> AudioQualityOption.NORMAL
                         AudioQuality.HIGH -> AudioQualityOption.HIGH
                     },
                     onOptionSelected = { option ->
                         val quality: AudioQuality = when (option) {
-                            AudioQualityOption.LOW -> AudioQuality.LOW
+                            AudioQualityOption.STANDARD -> AudioQuality.STANDARD
                             AudioQualityOption.NORMAL -> AudioQuality.NORMAL
                             AudioQualityOption.HIGH -> AudioQuality.HIGH
                         }

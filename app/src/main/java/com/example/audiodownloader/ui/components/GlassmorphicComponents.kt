@@ -27,21 +27,22 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 /**
  * Strictly Neomorphic Dark Palette
- * Background: Solid dark charcoal (#222222) with absolutely NO blue/violet tint.
+ * Background: Pure Black AMOLED (0xFF000000).
  * Accent: Light pink & soft rose (#F4A6B8, #FBC4CE, #B86477).
  * Text: Warm cream and soft neutral gray.
  */
 object NeumorphColors {
-    val Background = Color(0xFF222222)
-    val Surface = Color(0xFF222222)
-    val SurfacePressed = Color(0xFF1B1B1B)
-    val SurfaceLight = Color(0xFF282828)
+    val Background = Color(0xFF000000)
+    val Surface = Color(0xFF141414)
+    val SurfacePressed = Color(0xFF0A0A0A)
+    val SurfaceLight = Color(0xFF1F1F1F)
 
     // Light Pink Accents (Soft Sakura & Pastel Rose)
     val AccentCopper = Color(0xFFF4A6B8) // Light Pink primary
@@ -141,9 +142,13 @@ fun Modifier.neumorphicRecessed(
     }
 
 enum class AudioQualityOption(val title: String, val desc: String) {
-    HIGH("High Quality (itag 251 - Opus)", "Highest audio stream (~160 kbps Opus)"),
-    NORMAL("Normal Quality (itag 140 - AAC)", "Standard AAC M4A (~128 kbps)"),
-    LOW("Data Saver (Lowest)", "Minimal file size (~50-70 kbps)")
+    HIGH("High Quality (360 kbps)", "Maximum audio stream (~360 kbps)"),
+    NORMAL("Normal Quality (256 kbps)", "Balanced high-fidelity audio (~256 kbps)"),
+    STANDARD("Standard Quality (160 kbps)", "Minimum audio stream (~160 kbps)");
+
+    companion object {
+        val LOW get() = STANDARD
+    }
 }
 
 @Composable
@@ -511,49 +516,68 @@ fun NeomorphicSegmentedToggle(
     modifier: Modifier = Modifier
 ) {
     val activeAccent = LocalNeomorphicAccent.current
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .neumorphicRecessed(cornerRadius = 16.dp, backgroundColor = NeumorphColors.SurfacePressed)
-            .padding(4.dp),
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        options.forEachIndexed { index, title ->
-            val isSelected = index == selectedIndex
-            val shape = RoundedCornerShape(12.dp)
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .clip(shape)
-                    .then(
-                        if (isSelected) {
-                            Modifier
-                                .background(NeumorphColors.SurfaceLight)
-                                .border(
-                                    1.dp,
-                                    Brush.linearGradient(
-                                        listOf(
-                                            activeAccent,
-                                            activeAccent.copy(alpha = 0.6f)
-                                        )
-                                    ),
-                                    shape
-                                )
-                        } else {
-                            Modifier.background(Color.Transparent)
-                        }
+    BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
+        val isVeryCompact = maxWidth < 320.dp
+        val isCompact = maxWidth < 370.dp
+        val itemHorizontalPadding = when {
+            isVeryCompact -> 2.dp
+            isCompact -> 4.dp
+            else -> 8.dp
+        }
+        val itemVerticalPadding = if (isCompact) 8.dp else 10.dp
+        val itemFontSize = when {
+            isVeryCompact -> 11.sp
+            isCompact -> 12.sp
+            else -> 13.5.sp
+        }
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .neumorphicRecessed(cornerRadius = 16.dp, backgroundColor = NeumorphColors.SurfacePressed)
+                .padding(3.dp),
+            horizontalArrangement = Arrangement.spacedBy(3.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            options.forEachIndexed { index, title ->
+                val isSelected = index == selectedIndex
+                val shape = RoundedCornerShape(12.dp)
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(shape)
+                        .then(
+                            if (isSelected) {
+                                Modifier
+                                    .background(NeumorphColors.SurfaceLight)
+                                    .border(
+                                        1.dp,
+                                        Brush.linearGradient(
+                                            listOf(
+                                                activeAccent,
+                                                activeAccent.copy(alpha = 0.6f)
+                                            )
+                                        ),
+                                        shape
+                                    )
+                            } else {
+                                Modifier.background(Color.Transparent)
+                            }
+                        )
+                        .clickable { onOptionSelected(index) }
+                        .padding(horizontal = itemHorizontalPadding, vertical = itemVerticalPadding),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = title,
+                        color = if (isSelected) activeAccent else NeumorphColors.TextMuted,
+                        fontSize = itemFontSize,
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis
                     )
-                    .clickable { onOptionSelected(index) }
-                    .padding(vertical = 10.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = title,
-                    color = if (isSelected) activeAccent else NeumorphColors.TextMuted,
-                    fontSize = 14.sp,
-                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
-                )
+                }
             }
         }
     }

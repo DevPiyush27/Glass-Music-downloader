@@ -17,6 +17,9 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.analytics.AnalyticsListener
+import com.example.audiodownloader.audio.AudioEqualizerEngine
+import com.example.audiodownloader.audio.EqualizerState
 import com.example.audiodownloader.domain.model.FolderPlaylist
 import com.example.audiodownloader.domain.model.LocalTrack
 import android.media.MediaScannerConnection
@@ -169,6 +172,20 @@ class LocalPlayerViewModel(application: Application) : AndroidViewModel(applicat
     private val _accentColor = MutableStateFlow(DEFAULT_ACCENT_COLOR)
     val accentColor: StateFlow<Long> = _accentColor.asStateFlow()
 
+    // Hardware audio effects engine
+    val equalizerEngine = AudioEqualizerEngine(application)
+    val equalizerState: StateFlow<EqualizerState> = equalizerEngine.state
+
+    fun setEqualizerEnabled(enabled: Boolean) = equalizerEngine.setEnabled(enabled)
+    fun setEqualizerBandLevel(bandIndex: Short, levelMb: Short) = equalizerEngine.setBandLevel(bandIndex, levelMb)
+    fun applyEqualizerPreset(presetIndex: Short) = equalizerEngine.applyPreset(presetIndex)
+    fun resetEqualizerToFlat() = equalizerEngine.resetToFlat()
+    fun setBassBoostStrength(strength: Short) = equalizerEngine.setBassBoostStrength(strength)
+    fun setBassBoostEnabled(enabled: Boolean) = equalizerEngine.setBassBoostEnabled(enabled)
+
+    // Session flag to ensure the spotlight onboarding only triggers once per app session
+    var hasShownEqSpotlight: Boolean = false
+
     // Observable playback state consumed directly by Compose UI and notifications
     val playerState: StateFlow<PlayerState> = MusicStateBridge.playerState
 
@@ -195,6 +212,12 @@ class LocalPlayerViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
+    private val analyticsListener = object : AnalyticsListener {
+        override fun onAudioSessionIdChanged(eventTime: AnalyticsListener.EventTime, audioSessionId: Int) {
+            equalizerEngine.bindAudioSession(audioSessionId)
+        }
+    }
+
     private val playerListener = object : Player.Listener {
         override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
             updatePlayingState()
@@ -204,6 +227,7 @@ class LocalPlayerViewModel(application: Application) : AndroidViewModel(applicat
             updatePlayingState()
             if (playbackState == Player.STATE_READY) {
                 _durationMs.value = player.duration.coerceAtLeast(0L)
+                equalizerEngine.bindAudioSession(player.audioSessionId)
             } else if (playbackState == Player.STATE_ENDED) {
                 // Auto-Continue: When the custom queue finishes, automatically play the next song from main library
                 if (!player.hasNextMediaItem()) {
@@ -221,11 +245,17 @@ class LocalPlayerViewModel(application: Application) : AndroidViewModel(applicat
             _currentTrackIndex.value = if (player.mediaItemCount > 0) player.currentMediaItemIndex else -1
             _positionMs.value = 0L
             updatePlayingState()
+            equalizerEngine.bindAudioSession(player.audioSessionId)
         }
     }
 
     init {
         player.addListener(playerListener)
+        player.addAnalyticsListener(analyticsListener)
+        val initialSessionId = player.audioSessionId
+        if (initialSessionId != C.AUDIO_SESSION_ID_UNSET && initialSessionId != 0) {
+            equalizerEngine.bindAudioSession(initialSessionId)
+        }
         viewModelScope.launch {
             while (isActive) {
                 if (player.isPlaying) {
@@ -1332,9 +1362,9 @@ class LocalPlayerViewModel(application: Application) : AndroidViewModel(applicat
                 }
 
                 val palette = Palette.from(softwareBitmap).generate()
-                val darkBg = 0xFF222222.toInt()
+                val darkBg = 0xFF000000.toInt()
 
-                // Contrast Safety: LightVibrant/LightMuted or high-contrast swatches against #222222
+                // Contrast Safety: LightVibrant/LightMuted or high-contrast swatches against pure black #000000
                 val swatch = palette.lightVibrantSwatch
                     ?: palette.lightMutedSwatch
                     ?: palette.vibrantSwatch?.takeIf { ColorUtils.calculateContrast(it.rgb, darkBg) >= 3.0 }
@@ -1353,6 +1383,8 @@ class LocalPlayerViewModel(application: Application) : AndroidViewModel(applicat
     override fun onCleared() {
         MusicStateBridge.onActionReceived = null
         player.removeListener(playerListener)
+        player.removeAnalyticsListener(analyticsListener)
+        equalizerEngine.release()
         player.stop()
         player.release()
         super.onCleared()

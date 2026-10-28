@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Audio Aurora Custom Theme Colors -->
-    <color name="app_background">#222222</color>
+    <!-- Audio Aurora AMOLED Pure Black Theme Colors -->
+    <color name="app_background">#000000</color>
 </resources>

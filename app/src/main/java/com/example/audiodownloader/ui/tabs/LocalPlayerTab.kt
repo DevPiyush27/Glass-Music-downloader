@@ -7,12 +7,33 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.zIndex
+import com.example.audiodownloader.R
+import com.example.audiodownloader.ui.components.EqualizerDialog
+import kotlin.math.roundToInt
 import android.provider.MediaStore
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.ui.draw.blur
+import kotlinx.coroutines.delay
 import android.widget.Toast
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -107,16 +128,57 @@ fun LocalPlayerTab(
     var playlistToDelete by remember { mutableStateOf<FolderPlaylist?>(null) }
     var trackToDelete by remember { mutableStateOf<LocalTrack?>(null) }
     var playlistContextForDelete by remember { mutableStateOf<FolderPlaylist?>(null) }
+    var showEqualizerModal by remember { mutableStateOf(false) }
+    var showEqSpotlight by remember { mutableStateOf(false) }
+    val equalizerState by viewModel.equalizerState.collectAsStateWithLifecycle()
+
     LaunchedEffect(hasPermission) {
         if (hasPermission) {
             viewModel.refreshTracks()
         }
     }
 
-    Column(
-        modifier = modifier
-            .fillMaxSize()
+    // 2-second blurred spotlight onboarding effect for floating Equalizer
+    LaunchedEffect(Unit) {
+        if (!viewModel.hasShownEqSpotlight) {
+            delay(250L) // Brief settle delay after tab transition
+            showEqSpotlight = true
+            delay(2000L) // 2-second display duration so user can comfortably read the callout
+            showEqSpotlight = false
+            viewModel.hasShownEqSpotlight = true
+        }
+    }
+
+    BoxWithConstraints(
+        modifier = modifier.fillMaxSize()
     ) {
+        val parentWidthPx = constraints.maxWidth.toFloat()
+        val parentHeightPx = constraints.maxHeight.toFloat()
+        val density = LocalDensity.current
+        val bubbleSize = 64.dp
+        val bubbleSizePx = with(density) { bubbleSize.toPx() }
+
+        // Free placement state
+        var offsetX by remember { mutableStateOf<Float?>(null) }
+        var offsetY by remember { mutableStateOf<Float?>(null) }
+        val activeAccent = LocalNeomorphicAccent.current
+
+        val initialX = remember(parentWidthPx) {
+            (parentWidthPx - bubbleSizePx - with(density) { 16.dp.toPx() }).coerceAtLeast(0f)
+        }
+        val initialY = remember(parentHeightPx) {
+            (parentHeightPx - bubbleSizePx - with(density) { 96.dp.toPx() }).coerceAtLeast(0f)
+        }
+
+        val currentX = (offsetX ?: initialX).coerceIn(0f, (parentWidthPx - bubbleSizePx).coerceAtLeast(0f))
+        val currentY = (offsetY ?: initialY).coerceIn(0f, (parentHeightPx - bubbleSizePx).coerceAtLeast(0f))
+
+        val contentBlur = if (showEqSpotlight) 8.dp else 0.dp
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .blur(contentBlur)
+        ) {
         // Top Header: Neomorphic Segmented Toggle + Refresh
         Row(
             modifier = Modifier
@@ -475,6 +537,190 @@ fun LocalPlayerTab(
             onRewind = viewModel::rewind
         )
     }
+
+    // Blurred Spotlight Onboarding Overlay
+    AnimatedVisibility(
+        visible = showEqSpotlight,
+        enter = fadeIn(tween(250)),
+        exit = fadeOut(tween(300)),
+        modifier = Modifier
+            .fillMaxSize()
+            .zIndex(95f)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.70f))
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null
+                ) {
+                    showEqSpotlight = false
+                    viewModel.hasShownEqSpotlight = true
+                }
+        ) {
+            // Radiant Spotlight Glow behind the Floating Equalizer Button
+            Box(
+                modifier = Modifier
+                    .offset {
+                        IntOffset(
+                            (currentX - with(density) { 28.dp.toPx() }).roundToInt(),
+                            (currentY - with(density) { 28.dp.toPx() }).roundToInt()
+                        )
+                    }
+                    .size(bubbleSize + 56.dp)
+                    .background(
+                        Brush.radialGradient(
+                            listOf(
+                                activeAccent.copy(alpha = 0.5f),
+                                activeAccent.copy(alpha = 0.18f),
+                                Color.Transparent
+                            )
+                        ),
+                        CircleShape
+                    )
+            )
+
+            // Onboarding Callout Card
+            val calloutWidth = 230.dp
+            val calloutWidthPx = with(density) { calloutWidth.toPx() }
+            val calloutX = if (currentX > parentWidthPx / 2) {
+                (currentX - calloutWidthPx - with(density) { 14.dp.toPx() }).coerceAtLeast(with(density) { 16.dp.toPx() })
+            } else {
+                (currentX + bubbleSizePx + with(density) { 14.dp.toPx() }).coerceAtMost(parentWidthPx - calloutWidthPx - with(density) { 16.dp.toPx() })
+            }
+            val calloutY = (currentY - with(density) { 8.dp.toPx() })
+                .coerceIn(with(density) { 16.dp.toPx() }, parentHeightPx - with(density) { 120.dp.toPx() })
+
+            Box(
+                modifier = Modifier
+                    .offset { IntOffset(calloutX.roundToInt(), calloutY.roundToInt()) }
+                    .width(calloutWidth)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(NeumorphColors.Surface.copy(alpha = 0.95f))
+                    .border(
+                        1.5.dp,
+                        Brush.linearGradient(
+                            listOf(activeAccent, activeAccent.copy(alpha = 0.35f))
+                        ),
+                        RoundedCornerShape(16.dp)
+                    )
+                    .padding(horizontal = 14.dp, vertical = 10.dp)
+            ) {
+                Column {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.GraphicEq,
+                            contentDescription = null,
+                            tint = activeAccent,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Text(
+                            text = "Audio Equalizer",
+                            color = NeumorphColors.TextCream,
+                            fontSize = 13.5.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Tap to open 5-band EQ & bass boost, or drag anywhere!",
+                        color = NeumorphColors.TextMuted,
+                        fontSize = 11.5.sp,
+                        lineHeight = 15.sp
+                    )
+                }
+            }
+        }
+    }
+
+    // Free-Floating Draggable Equalizer Circle
+    Box(
+        modifier = Modifier
+            .zIndex(99f)
+            .offset { IntOffset(currentX.roundToInt(), currentY.roundToInt()) }
+            .size(bubbleSize)
+            .clip(CircleShape)
+            .background(NeumorphColors.Surface)
+            .border(2.dp, activeAccent, CircleShape)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null
+            ) {
+                showEqSpotlight = false
+                viewModel.hasShownEqSpotlight = true
+                showEqualizerModal = true
+            }
+            .pointerInput(parentWidthPx, parentHeightPx) {
+                detectDragGestures { change, dragAmount ->
+                    change.consume()
+                    val newX = (offsetX ?: initialX) + dragAmount.x
+                    val newY = (offsetY ?: initialY) + dragAmount.y
+                    offsetX = newX.coerceIn(0f, (parentWidthPx - bubbleSizePx).coerceAtLeast(0f))
+                    offsetY = newY.coerceIn(0f, (parentHeightPx - bubbleSizePx).coerceAtLeast(0f))
+                }
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        // Animated pulse ring when spotlight is active
+        if (showEqSpotlight) {
+            val infiniteTransition = rememberInfiniteTransition(label = "eqSpotlightPulse")
+            val pulseScale by infiniteTransition.animateFloat(
+                initialValue = 1f,
+                targetValue = 1.25f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(650, easing = FastOutSlowInEasing),
+                    repeatMode = RepeatMode.Reverse
+                ),
+                label = "pulseScale"
+            )
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .graphicsLayer {
+                        scaleX = pulseScale
+                        scaleY = pulseScale
+                    }
+                    .border(2.dp, activeAccent.copy(alpha = 0.7f), CircleShape)
+            )
+        }
+
+        Icon(
+            painter = painterResource(id = R.drawable.ic_waveform),
+            contentDescription = "Open Equalizer",
+            tint = if (equalizerState.isEnabled) activeAccent else NeumorphColors.TextCream,
+            modifier = Modifier.size(34.dp)
+        )
+
+        // Dynamic status glow dot when active
+        if (equalizerState.isEnabled) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(6.dp)
+                    .size(9.dp)
+                    .clip(CircleShape)
+                    .background(activeAccent)
+            )
+        }
+    }
+
+    if (showEqualizerModal) {
+        EqualizerDialog(
+            state = equalizerState,
+            onToggleEnabled = viewModel::setEqualizerEnabled,
+            onBandLevelChange = viewModel::setEqualizerBandLevel,
+            onSelectPreset = viewModel::applyEqualizerPreset,
+            onResetToFlat = viewModel::resetEqualizerToFlat,
+            onBassBoostChange = viewModel::setBassBoostStrength,
+            onBassBoostToggle = viewModel::setBassBoostEnabled,
+            onDismiss = { showEqualizerModal = false }
+        )
+    }
+}
 
     // Dialog: Create New Playlist Folder
     if (showCreateDialog) {
@@ -983,129 +1229,145 @@ private fun MiniPlayerCard(
                 )
             }
 
-            // Mini Player Controls Row
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // Compact icon indicator
-                Box(
+            // Mini Player Controls Row (Adaptive & Responsive)
+            BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                val isVeryCompact = maxWidth < 340.dp
+                val isCompact = maxWidth < 380.dp
+                val buttonSize = if (isVeryCompact) 30.dp else if (isCompact) 32.dp else 36.dp
+                val playSize = if (isVeryCompact) 36.dp else if (isCompact) 38.dp else 42.dp
+                val spacing = if (isVeryCompact) 2.dp else if (isCompact) 3.dp else 4.dp
+                val artSize = if (isVeryCompact) 32.dp else 38.dp
+
+                Row(
                     modifier = Modifier
-                        .size(38.dp)
-                        .neumorphicRecessed(cornerRadius = 10.dp, backgroundColor = NeumorphColors.SurfacePressed),
-                    contentAlignment = Alignment.Center
+                        .fillMaxWidth()
+                        .padding(horizontal = if (isVeryCompact) 8.dp else 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(
-                        imageVector = if (isPlaying) Icons.Default.GraphicEq else Icons.Default.Album,
-                        contentDescription = null,
-                        tint = accentColor,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-
-                Spacer(modifier = Modifier.width(10.dp))
-
-                // Track Title & Artist
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = currentTrack?.title?.takeIf { it.isNotBlank() } ?: "Audio Aurora",
-                        color = NeumorphColors.TextCream,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    val artistText = when {
-                        currentTrack == null -> "Select a track to play"
-                        currentTrack.artist.isBlank() || currentTrack.artist.equals(MediaStore.UNKNOWN_STRING, ignoreCase = true) -> "Unknown Artist"
-                        else -> currentTrack.artist
-                    }
-                    Text(
-                        text = artistText,
-                        color = if (hasSelection) accentColor.copy(alpha = 0.85f) else NeumorphColors.TextMuted,
-                        fontSize = 12.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-
-                Spacer(modifier = Modifier.width(6.dp))
-
-                // -10s Rewind Button
-                NeomorphicBackwardButton(
-                    onClick = onRewind,
-                    enabled = hasSelection,
-                    size = 36.dp,
-                    cornerRadius = 10.dp,
-                    accentColor = accentColor
-                )
-
-                Spacer(modifier = Modifier.width(4.dp))
-
-                // Previous Button
-                IconButton(
-                    onClick = onSkipPrevious,
-                    enabled = hasSelection,
-                    modifier = Modifier.size(36.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.SkipPrevious,
-                        contentDescription = "Previous track",
-                        tint = if (hasSelection) NeumorphColors.TextCream else NeumorphColors.TextMuted.copy(alpha = 0.35f),
-                        modifier = Modifier.size(24.dp)
-                    )
-                }
-
-                // Extruded Play/Pause Circle
-                Box(
-                    modifier = Modifier
-                        .size(42.dp)
-                        .clip(RoundedCornerShape(21.dp))
-                        .background(accentColor)
-                        .border(
-                            1.dp,
-                            Brush.linearGradient(
-                                listOf(Color.White.copy(alpha = 0.25f), Color.Black.copy(alpha = 0.4f))
-                            ),
-                            RoundedCornerShape(21.dp)
+                    // Compact icon indicator
+                    Box(
+                        modifier = Modifier
+                            .size(artSize)
+                            .neumorphicRecessed(cornerRadius = 10.dp, backgroundColor = NeumorphColors.SurfacePressed),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = if (isPlaying) Icons.Default.GraphicEq else Icons.Default.Album,
+                            contentDescription = null,
+                            tint = accentColor,
+                            modifier = Modifier.size(if (isVeryCompact) 18.dp else 20.dp)
                         )
-                        .clickable(enabled = hasSelection, onClick = onTogglePlayPause),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                        contentDescription = if (isPlaying) "Pause" else "Play",
-                        tint = NeumorphColors.TextCream,
-                        modifier = Modifier.size(24.dp)
-                    )
+                    }
+
+                    Spacer(modifier = Modifier.width(if (isVeryCompact) 6.dp else 10.dp))
+
+                    // Track Title & Artist
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = currentTrack?.title?.takeIf { it.isNotBlank() } ?: "Audio Aurora",
+                            color = NeumorphColors.TextCream,
+                            fontSize = if (isVeryCompact) 13.sp else 14.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        val artistText = when {
+                            currentTrack == null -> "Select a track to play"
+                            currentTrack.artist.isBlank() || currentTrack.artist.equals(MediaStore.UNKNOWN_STRING, ignoreCase = true) -> "Unknown Artist"
+                            else -> currentTrack.artist
+                        }
+                        Text(
+                            text = artistText,
+                            color = if (hasSelection) accentColor.copy(alpha = 0.85f) else NeumorphColors.TextMuted,
+                            fontSize = if (isVeryCompact) 11.sp else 12.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(spacing))
+
+                    // -10s Rewind Button
+                    if (!isVeryCompact) {
+                        NeomorphicBackwardButton(
+                            onClick = onRewind,
+                            enabled = hasSelection,
+                            size = buttonSize,
+                            cornerRadius = 10.dp,
+                            accentColor = accentColor
+                        )
+                        Spacer(modifier = Modifier.width(spacing))
+                    }
+
+                    // Previous Button
+                    IconButton(
+                        onClick = onSkipPrevious,
+                        enabled = hasSelection,
+                        modifier = Modifier.size(buttonSize)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.SkipPrevious,
+                            contentDescription = "Previous track",
+                            tint = if (hasSelection) NeumorphColors.TextCream else NeumorphColors.TextMuted.copy(alpha = 0.35f),
+                            modifier = Modifier.size(if (isVeryCompact) 20.dp else 24.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(spacing))
+
+                    // Extruded Play/Pause Circle
+                    Box(
+                        modifier = Modifier
+                            .size(playSize)
+                            .clip(RoundedCornerShape(playSize / 2))
+                            .background(accentColor)
+                            .border(
+                                1.dp,
+                                Brush.linearGradient(
+                                    listOf(Color.White.copy(alpha = 0.25f), Color.Black.copy(alpha = 0.4f))
+                                ),
+                                RoundedCornerShape(playSize / 2)
+                            )
+                            .clickable(enabled = hasSelection, onClick = onTogglePlayPause),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                            contentDescription = if (isPlaying) "Pause" else "Play",
+                            tint = NeumorphColors.TextCream,
+                            modifier = Modifier.size(if (isVeryCompact) 20.dp else 24.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(spacing))
+
+                    // Next Button
+                    IconButton(
+                        onClick = onSkipNext,
+                        enabled = hasSelection,
+                        modifier = Modifier.size(buttonSize)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.SkipNext,
+                            contentDescription = "Next track",
+                            tint = if (hasSelection) NeumorphColors.TextCream else NeumorphColors.TextMuted.copy(alpha = 0.35f),
+                            modifier = Modifier.size(if (isVeryCompact) 20.dp else 24.dp)
+                        )
+                    }
+
+                    if (!isVeryCompact) {
+                        Spacer(modifier = Modifier.width(spacing))
+
+                        // +10s Fast Forward Button
+                        NeomorphicForwardButton(
+                            onClick = onFastForward,
+                            enabled = hasSelection,
+                            size = buttonSize,
+                            cornerRadius = 10.dp,
+                            accentColor = accentColor
+                        )
+                    }
                 }
-
-                // Next Button
-                IconButton(
-                    onClick = onSkipNext,
-                    enabled = hasSelection,
-                    modifier = Modifier.size(36.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.SkipNext,
-                        contentDescription = "Next track",
-                        tint = if (hasSelection) NeumorphColors.TextCream else NeumorphColors.TextMuted.copy(alpha = 0.35f),
-                        modifier = Modifier.size(24.dp)
-                    )
-                }
-
-                Spacer(modifier = Modifier.width(4.dp))
-
-                // +10s Fast Forward Button
-                NeomorphicForwardButton(
-                    onClick = onFastForward,
-                    enabled = hasSelection,
-                    size = 36.dp,
-                    cornerRadius = 10.dp,
-                    accentColor = accentColor
-                )
             }
         }
     }
@@ -1115,7 +1377,7 @@ private fun MiniPlayerCard(
  * Extruded Neomorphic "-10s" Backward / Rewind button.
  *
  * Characteristics:
- * - Base color: Dark charcoal (#222222)
+ * - Base color: NeumorphColors.Surface
  * - Accent color: Light Pink (#FFB6C1)
  * - Extruded outer shadow modifier (.neumorphicExtruded) matching the player controls aesthetic
  * - Zero default Material 3 blue/violet ripple (custom tactile compression on press)
@@ -1128,7 +1390,7 @@ fun NeomorphicBackwardButton(
     enabled: Boolean = true,
     size: Dp = 36.dp,
     cornerRadius: Dp = 10.dp,
-    baseColor: Color = Color(0xFF222222),
+    baseColor: Color = NeumorphColors.Surface,
     accentColor: Color = LocalNeomorphicAccent.current
 ) {
     val interactionSource = remember { MutableInteractionSource() }
@@ -1171,7 +1433,7 @@ fun NeomorphicBackwardButton(
  * Extruded Neomorphic "+10s" Fast Forward button.
  *
  * Characteristics:
- * - Base color: Dark charcoal (#222222)
+ * - Base color: NeumorphColors.Surface
  * - Accent color: Dynamic palette color (default Light Pink #FFB6C1 via LocalNeomorphicAccent)
  * - Extruded outer shadow modifier (.neumorphicExtruded) matching the player controls aesthetic
  * - Zero default Material 3 blue/violet ripple (custom tactile compression on press)
@@ -1184,7 +1446,7 @@ fun NeomorphicForwardButton(
     enabled: Boolean = true,
     size: Dp = 36.dp,
     cornerRadius: Dp = 10.dp,
-    baseColor: Color = Color(0xFF222222),
+    baseColor: Color = NeumorphColors.Surface,
     accentColor: Color = LocalNeomorphicAccent.current
 ) {
     val interactionSource = remember { MutableInteractionSource() }
