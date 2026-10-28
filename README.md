@@ -15,7 +15,7 @@ intelligent offline playback with zero external setup.
 
 ---
 
-[![Download APK](https://img.shields.io/badge/Download-APK-10B981?style=for-the-badge&logo=android&logoColor=white)](https://github.com/DevPiyush27/Glass-Music-downloader/releases/download/v.1.5.0/app-debug.apk)
+[![Download APK](https://img.shields.io/badge/Download-APK-10B981?style=for-the-badge&logo=android&logoColor=white)](https://github.com/DevPiyush27/Glass-Music-downloader/releases/download/v1.6.0/app-debug.apk)
 
 ---
 
@@ -70,7 +70,7 @@ intelligent offline playback with zero external setup.
 
 ### 📥 Getting Started
 
-1. Tap the **[Download APK](https://github.com/DevPiyush27/Glass-Music-downloader/releases/download/v.1.5.0/app-debug.apk)** 
+1. Tap the **[Download APK](https://github.com/DevPiyush27/Glass-Music-downloader/releases/download/v1.6.0/app-debug.apk)** 
    button above.
 2. Install the `.apk` on your Android device 
    (enable *Install unknown apps* if prompted).
